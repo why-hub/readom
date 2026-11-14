@@ -26,6 +26,7 @@
 #include "identity-attrs.h"
 #include "allocation-ranges.h"
 #include "target-lock.h"
+#include "private-pgd.h"
 
 #ifndef PWS_PROFILE
 #define PWS_PROFILE 0
@@ -72,6 +73,16 @@
  * port to a machine with another split gets a table that does not match the
  * plan it was checked against, with nothing to say so. */
 #define IDENTITY_SECTIONS (TARGET_IDENTITY_LIMIT>>20)
+/* Which of the two layouts this build is for. A profile that says nothing is
+ * the window-building one (PW3); build_module.py only emits TARGET_PGD_POLICY
+ * for a profile that explicitly asks for another. */
+#ifndef TARGET_PGD_POLICY
+#define TARGET_PGD_POLICY PWS_PGD_BUILD_WINDOW
+#endif
+#define PWS_PGD_POLICY TARGET_PGD_POLICY
+#if PWS_PGD_POLICY != PWS_PGD_BUILD_WINDOW && PWS_PGD_POLICY != PWS_PGD_COPY_LIVE
+#error "TARGET_PGD_POLICY is not one of the two private-pgd policies"
+#endif
 struct allocation { struct page *page; unsigned int order; };
 struct slot { unsigned int bytes, written, first, pages; u8 expected[32]; };
 struct store {
@@ -82,6 +93,7 @@ struct store {
     struct slot slot[PWS_SLOTS];
     unsigned int native_ready;
     unsigned int device_checked;   /* seal(): device ATAGs and archive keep the build's rules */
+    u32 live_pgd_phys;             /* prepare(): the live PGD the private table was copied from */
 };
 static atomic_t opened=ATOMIC_INIT(0);
 static unsigned long live_pages;
@@ -355,14 +367,22 @@ static int audit_plan(struct store *s)
 {
     unsigned int i,j,page=0,word=0,entries=0,total=0;
     const u32 *table=page_address(s->allocations[s->control_first+2].page);
+    const u32 *live;
+    if(!s->live_pgd_phys || (s->live_pgd_phys&16383u))return -EUCLEAN;
+    live=phys_to_virt(s->live_pgd_phys);
     /* Recheck every actual source, control, page-table and list allocation
      * against all regions that the copy/decompressor path may overwrite. */
     for(i=0;i<s->count;i++)
         if(!pws_allocation_allowed(PHYS_OFFSET,TARGET_FOOTPRINT_END,
             s->slot[0].bytes,s->slot[2].bytes,owned_phys(s,i),
             PAGE_SIZE<<s->allocations[i].order))return -EUCLEAN;
-    for(i=0;i<IDENTITY_SECTIONS;++i) {
-        u32 expected=i==(owned_phys(s,s->control_first)>>20)?(i<<20|PW3_IDENTITY_SECTION):0;
+    /* Recompute all 4096 sections from the live table and the plan. This
+     * consumer reads the owned page and the live PGD again; it does not trust
+     * any intermediate that prepare() produced. */
+    for(i=0;i<4096;++i) {
+        u32 expected=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
+            owned_phys(s,s->control_first)>>20,
+            owned_phys(s,s->control_first),PW3_IDENTITY_SECTION,live);
         if(table[i]!=expected)return -EUCLEAN;
     }
     for(i=0;i<PWS_SLOTS+1;++i) {
@@ -413,16 +433,20 @@ static int prepare(struct store *s)
        !pfn_valid(pa>>PAGE_SHIFT) || !pfn_valid((pa+16383)>>PAGE_SHIFT)) {
         preempt_enable();rc=-EOPNOTSUPP;goto fail;
     }
+    s->live_pgd_phys=pa;
     current_pgd=phys_to_virt(pa);
-    for(i=0;i<IDENTITY_SECTIONS;++i)pgd[i]=0;
-    pgd[owned_phys(s,s->control_first)>>20]=(owned_phys(s,s->control_first)&0xfff00000u)|PW3_IDENTITY_SECTION;
-    for(;i<4096;++i)pgd[i]=current_pgd[i];
+    for(i=0;i<4096;++i)
+        pgd[i]=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
+            owned_phys(s,s->control_first)>>20,
+            owned_phys(s,s->control_first),PW3_IDENTITY_SECTION,current_pgd);
 #if PWS_PROFILE == 2
     if(plan_fault==4)pgd[0xc00]^=1;
     if(plan_fault==5)pgd[0x600]^=4;
 #endif
-    for(i=IDENTITY_SECTIONS;i<4096;++i)
-        if(pgd[i]!=current_pgd[i])break;
+    for(i=0;i<4096;++i)
+        if(pgd[i]!=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
+            owned_phys(s,s->control_first)>>20,
+            owned_phys(s,s->control_first),PW3_IDENTITY_SECTION,current_pgd))break;
     preempt_enable();
     if(i!=4096){rc=-EUCLEAN;goto fail;}
 #if PWS_PROFILE == 2
@@ -512,21 +536,25 @@ static int __init stage_init(void)
      * it and a plan checked against a limit the table does not keep. */
     BUILD_BUG_ON(TARGET_IDENTITY_LIMIT&0xfffffu);
     BUILD_BUG_ON(IDENTITY_SECTIONS>=4096u || !IDENTITY_SECTIONS);
-    /* Everything below the bound is cleared out of the private table, and
-     * between the TTBR0 write and the branch into the control page the code
-     * still running is this module's own (cache-ops.S tail, transition.S
-     * pw3_enter_private_mapping). So the module area has to be at or above the
-     * bound, or the table unmaps the instruction that installs it.
+    /* Under the window-building policy everything below the bound is cleared
+     * out of the private table, and between the TTBR0 write and the branch
+     * into the control page the code still running is this module's own
+     * (cache-ops.S tail, transition.S pw3_enter_private_mapping). So on that
+     * layout the module area has to be at or above the bound, or the table
+     * unmaps the instruction that installs it. MODULES_VADDR is PAGE_OFFSET -
+     * 16 MiB and this kernel is 3G/1G, so both are 0xbf000000.
      *
-     * It holds here by equality, not by luck of the draw: MODULES_VADDR is
-     * PAGE_OFFSET - 16 MiB and this kernel is 3G/1G, so both are 0xbf000000.
-     * A 2G/2G Kindle (imx60_duet_defconfig sets CONFIG_VMSPLIT_2G) puts the
-     * module area at 0x7f000000 while its bound has to clear the top of RAM,
-     * and there the two part company. That port needs the private table to
-     * keep a second region, not a wider profile number -- and it should find
-     * that out from this line rather than from a device that stops booting.
-     * docs/design/porting-to-other-models.md section 6 says what it costs. */
+     * A 2G/2G Kindle puts the module area at 0x7f000000 while its bound has
+     * to clear the top of RAM. Clearing is wrong there for a second reason:
+     * PAGE_OFFSET == PHYS_OFFSET, so live lowmem is already 1:1 and the
+     * private table must copy all 4096 words (PWS_PGD_COPY_LIVE) instead.
+     * Keeping the policy here, with a host-side test in boot/handoff/tests,
+     * is what lets that port change the table rather than widen a number in a
+     * profile. docs/design/porting-to-other-models.md section 6, and
+     * docs/design/private-pgd-policy.md. */
+#if PWS_PGD_POLICY == PWS_PGD_BUILD_WINDOW
     BUILD_BUG_ON(TARGET_IDENTITY_LIMIT>(unsigned int)MODULES_VADDR);
+#endif
     if(!PWS_PROFILE)return -EOPNOTSUPP;
 #if PWS_PROFILE == 1
     if(strcmp(u->release,"3.0.35-lab126") ||

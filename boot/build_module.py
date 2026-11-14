@@ -51,6 +51,10 @@ def target_lock(profile, kernel, public, cmdline, footprint):
            '#define TARGET_DEVICE_ARCHIVE_MAX %du' % p['device_archive_max'],
            'static const char target_cmdline[]=%s;' % c_string(cmdline),
            'static const u32 target_atag_kinds[]={%s};' % ','.join('%#xu' % int(k, 0) for k in p['atag_kinds'])]
+    # Only a profile that asks for another private-pgd policy gets the macro;
+    # PW3's generated target-lock.h stays byte for byte the same.
+    if p.get('pgd_policy'):
+        out.append('#define TARGET_PGD_POLICY %du' % int(p['pgd_policy']))
     lock = '\n'.join(out) + '\n'
     lock += ranges('target_ram', p['ram']) + ranges('target_forbidden', p['forbidden'])
     lock += ranges('target_footprint', [[hex(footprint['start']), hex(footprint['bytes'])]])

@@ -165,7 +165,11 @@ static int native_core_suspend(void)
     __asm__ volatile("mrc p15,0,%0,c2,c0,2":"=r"(ttbcr));
     if(ttbcr || (ttbr&~16383u)<PHYS_OFFSET || (ttbr&~16383u)>PHYS_OFFSET+512u*1024u*1024u-16384u){rc=-EOPNOTSUPP;goto out;}
     native_backend.original=phys_to_virt(ttbr&~16383u);pgd=(u32 *)native_backend.private;
-    for(i=IDENTITY_SECTIONS;i<4096;i++)pgd[i]=native_backend.original[i];
+    for(i=0;i<4096;i++)
+        pgd[i]=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
+            native_backend.physical_control>>20,
+            native_backend.physical_control,PW3_IDENTITY_SECTION,
+            native_backend.original);
     native_backend.expected_thread_info=(u32)task_thread_info(native_owner);
     native_report.backend_check_performed=1;
 #if PWS_PROFILE == 2
