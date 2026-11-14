@@ -15,13 +15,70 @@
 /* PW3 (Wario), stock firmware 5.16.2.1.1: its /proc/cmdline, user FAT mount
  * and the Wi-Fi files its startup script selects (/etc/upstart/wifim; the
  * running ath6kl_sdio board_data_file parameter names the same file). */
+static const char *const pw3_wifi_dirs[] = {
+    "firmware", "firmware/image", "firmware/image/ath6k",
+    "firmware/image/ath6k/AR6003", "firmware/image/ath6k/AR6003/hw2.1.1",
+    "firmware/image/epdc", "firmware/image/epdc/pw3", NULL
+};
+/* PW3 builds its Wi-Fi driver from the GPL tree; no factory module is needed. */
+static const struct dd_wifi_module pw3_wifi_modules[] = { {NULL, NULL, 0} };
+
 const struct dd_profile dd_pw3_5_16_2_1_1 = {
     "log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M",
     "/mnt/base-us",
     "/opt/ar6k/target/AR6003/hw2.1.1/bin/AR6003_wfo_calfile.bin",
     "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
+    2048,
+    "firmware/image/ath6k/AR6003/hw2.1.1/board.bin",
+    "firmware/image/ath6k/AR6003/hw2.1.1/fw-4.bin",
+    pw3_wifi_dirs,
+    pw3_wifi_modules,
+    "firmware/image/epdc/pw3/waveform.pw3.gz",
     "3.0.35-lab126",
     "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023",
+};
+
+/* Kindle Oasis (8th generation, "duet"), stock 5.16.2.1.1. Every value below
+ * was measured on a device on 2026-11-14: /proc/cmdline and /proc/version from
+ * the survey report, the four paths and their sizes from a read-only mount of
+ * that device's stock p1 partition image (docs/design/duet-wifi-device-data.md).
+ *
+ * The board file is shared with wario, so /proc/cpuinfo still says "Wario" and
+ * dd_device_matches' board check needs no duet special case. What differs is
+ * the boot loader's "no_console_suspend" and the stock kernel's own build
+ * number (#6, 12:57:50 -- PW3's is #8, 12:49:59), both of which the identity
+ * check compares before anything is written.
+ *
+ * These are the four private files route A needs. dhd.ko and falcon.ko are the
+ * factory modules: this kernel exports all 185 undefined symbols of dhd.ko and
+ * its vermagic is byte-identical to theirs, but loading them is still unproven
+ * on a running duet (see the design note). Nothing is read until a start. */
+static const char *const duet_wifi_dirs[] = {
+    "firmware", "firmware/image", "firmware/image/brcm_4343w",
+    "firmware/image/brcm_4343w/modules", "firmware/image/epdc",
+    "firmware/image/epdc/duet", NULL
+};
+static const struct dd_wifi_module duet_wifi_modules[] = {
+    {"/lib/modules/3.0.35-lab126/extra/dhd.ko",
+     "firmware/image/brcm_4343w/modules/dhd.ko", 1u << 20},
+    {"/lib/modules/3.0.35-lab126/extra/falcon.ko",
+     "firmware/image/brcm_4343w/modules/falcon.ko", 1u << 20},
+    {NULL, NULL, 0}
+};
+
+const struct dd_profile dd_duet_5_16_2_1_1 = {
+    "no_console_suspend log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M",
+    "/mnt/base-us",
+    "/opt/brcm_4343w/wifi/nvram/nvram.txt",
+    "/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin",
+    906,
+    "firmware/image/brcm_4343w/nvram.txt",
+    "firmware/image/brcm_4343w/fw_bcmdhd_sr.bin",
+    duet_wifi_dirs,
+    duet_wifi_modules,
+    "firmware/image/epdc/duet/waveform.pw3.gz",
+    "3.0.35-lab126",
+    "#6 PREEMPT Tue Aug 1 12:57:50 UTC 2023",
 };
 
 void dd_free(struct dd_buf *b) { free(b->data); b->data = NULL; b->size = b->cap = 0; }
@@ -485,7 +542,8 @@ static int data_conf(const char *root, const struct dd_profile *profile, const s
 
 int dd_archive(const char *root, const struct dd_profile *profile, const struct dd_build *build,
                struct dd_buf *out, struct dd_why *why) {
-    struct dd_buf panel = {0}, wrf = {0}, envelope = {0}, gz = {0}, board = {0}, firmware = {0}, conf = {0}, data = {0};
+    struct dd_buf panel = {0}, wrf = {0}, envelope = {0}, gz = {0}, board = {0}, firmware = {0},
+                 module = {0}, conf = {0}, data = {0};
     char source[32];
     int rc = -1;
     out->size = 0;
@@ -498,19 +556,27 @@ int dd_archive(const char *root, const struct dd_profile *profile, const struct 
     if (dd_gzip_stored(envelope.data, envelope.size, &gz)) { fail(why, "out of memory"); goto done; }
     if (read_file(root, profile->wifi_board, 65536, &board, why) ||
         read_file(root, profile->wifi_firmware, 1u << 20, &firmware, why)) goto done;
-    if (board.size != 2048) { fail(why, "Wi-Fi calibration is not 2048 bytes"); goto done; }
+    if (board.size != profile->wifi_board_size) {
+        fail(why, "Wi-Fi calibration is %zu bytes, expected %zu", board.size, profile->wifi_board_size);
+        goto done;
+    }
     if (append(&conf, build->preinit_conf, strlen(build->preinit_conf)) || storage_lines(root, profile, &conf, why)) {
         if (!why->text[0]) fail(why, "out of memory");
         goto done;
     }
     if (build->data_path && data_conf(root, profile, build, &data, why)) goto done;
-    static const char *const dirs[] = {"firmware", "firmware/image", "firmware/image/ath6k", "firmware/image/ath6k/AR6003",
-        "firmware/image/ath6k/AR6003/hw2.1.1", "firmware/image/epdc", "firmware/image/epdc/pw3"};
-    for (unsigned i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
-        if (dd_newc(out, dirs[i], 0040700, NULL, 0)) goto oom;
-    if (dd_newc(out, "firmware/image/ath6k/AR6003/hw2.1.1/board.bin", 0100600, board.data, board.size) ||
-        dd_newc(out, "firmware/image/ath6k/AR6003/hw2.1.1/fw-4.bin", 0100600, firmware.data, firmware.size) ||
-        dd_newc(out, "firmware/image/epdc/pw3/waveform.pw3.gz", 0100600, gz.data, gz.size) ||
+    for (const char *const *d = profile->wifi_dirs; *d; ++d)
+        if (dd_newc(out, *d, 0040700, NULL, 0)) goto oom;
+    if (dd_newc(out, profile->wifi_board_archive, 0100600, board.data, board.size) ||
+        dd_newc(out, profile->wifi_firmware_archive, 0100600, firmware.data, firmware.size)) goto oom;
+    /* Route A: the factory modules are private to this device. Read them here,
+     * on this start, from the stock root fs -- never from a release. */
+    for (const struct dd_wifi_module *m = profile->wifi_modules; m && m->archive_path; ++m) {
+        module.size = 0;
+        if (read_file(root, m->stock_path, m->max_size, &module, why)) goto done;
+        if (dd_newc(out, m->archive_path, 0100600, module.data, module.size)) goto oom;
+    }
+    if (dd_newc(out, profile->waveform_archive, 0100600, gz.data, gz.size) ||
         dd_newc(out, "pw3-preinit.conf", 0100400, conf.data, conf.size) ||
         (build->data_path && dd_newc(out, "pw3-testdata.conf", 0100400, data.data, data.size)) ||
         dd_newc_end(out)) goto oom;
@@ -520,7 +586,7 @@ oom:
     fail(why, "out of memory");
 done:
     dd_free(&panel); dd_free(&wrf); dd_free(&envelope); dd_free(&gz);
-    dd_free(&board); dd_free(&firmware); dd_free(&conf); dd_free(&data);
+    dd_free(&board); dd_free(&firmware); dd_free(&module); dd_free(&conf); dd_free(&data);
     if (rc) dd_free(out);
     return rc;
 }

@@ -27,11 +27,33 @@ struct dd_buf { unsigned char *data; size_t size, cap; };
 void dd_free(struct dd_buf *b);
 
 /* What one supported model on one stock firmware fixes. */
+/* A private kernel module the stock system owns. It is read from the running
+ * device on every start and appended to that start's cpio; neither the file
+ * nor a hash of it is kept in this repository or in a release
+ * (CONTRIBUTING.md, rule 2). The path is a fact about the firmware, not the
+ * device. */
+struct dd_wifi_module {
+    const char *stock_path;      /* absolute path on the stock root fs */
+    const char *archive_path;    /* path inside the cpio; NULL ends the list */
+    size_t max_size;             /* refuse anything larger */
+};
+
+/* What one supported model on one stock firmware fixes. The Wi-Fi half is a
+ * plan rather than two hard-coded paths because the Atheros and Broadcom parts
+ * need different calibration sizes, different firmware names, and Oasis 1 also
+ * needs its factory modules carried over (docs/design/porting-to-other-models.md
+ * section 7, route A). */
 struct dd_profile {
     const char *stock_cmdline;   /* /proc/cmdline without root= and rootwait */
     const char *user_mount;      /* the stock mount of the user FAT */
     const char *wifi_board;      /* stock path of the Wi-Fi calibration */
     const char *wifi_firmware;   /* stock path of the Wi-Fi firmware */
+    size_t wifi_board_size;      /* measured size of that calibration blob */
+    const char *wifi_board_archive;      /* its path in the cpio */
+    const char *wifi_firmware_archive;   /* its path in the cpio */
+    const char *const *wifi_dirs;        /* NULL-terminated cpio directories */
+    const struct dd_wifi_module *wifi_modules;  /* NULL-archive_path-terminated */
+    const char *waveform_archive;        /* cpio path of waveform.pw3.gz */
     /* The stock kernel itself, as /proc/version and uname report it. The
      * handover calls that kernel's own pm_test_show and L2 cache functions and
      * checks their bodies byte for byte (boot/handoff/native-handoff.h), so
@@ -42,6 +64,7 @@ struct dd_profile {
     const char *kernel_version;  /* uname -v: the build number, date and time */
 };
 extern const struct dd_profile dd_pw3_5_16_2_1_1;
+extern const struct dd_profile dd_duet_5_16_2_1_1;
 
 /* What the build fixes. */
 struct dd_build {
