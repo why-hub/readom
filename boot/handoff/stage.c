@@ -557,9 +557,19 @@ static int __init stage_init(void)
 #endif
     if(!PWS_PROFILE)return -EOPNOTSUPP;
 #if PWS_PROFILE == 1
+    /* A port pins its own firmware here. Without this, a device whose helper
+     * passed every check is still refused by the module, and the refusal
+     * happens after the helper has told the reader it is on its way. Profiles
+     * that pin nothing keep the PW3 literals, so PW3's build is unchanged. */
+#ifdef TARGET_KERNEL_VERSION
+    if(strcmp(u->release,TARGET_KERNEL_RELEASE) ||
+       strcmp(u->version,TARGET_KERNEL_VERSION) ||
+       strcmp(u->machine,TARGET_KERNEL_MACHINE) || PHYS_OFFSET!=0x80000000)return -ENOEXEC;
+#else
     if(strcmp(u->release,"3.0.35-lab126") ||
        strcmp(u->version,"#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023") ||
        strcmp(u->machine,"armv7l") || PHYS_OFFSET!=0x80000000)return -ENOEXEC;
+#endif
 #elif PWS_PROFILE == 2
     if(!strstr(u->release,"-pw3-core-smoke") || PHYS_OFFSET!=0x60000000)return -ENOEXEC;
 #else

@@ -55,6 +55,14 @@ def target_lock(profile, kernel, public, cmdline, footprint):
     # PW3's generated target-lock.h stays byte for byte the same.
     if p.get('pgd_policy'):
         out.append('#define TARGET_PGD_POLICY %du' % int(p['pgd_policy']))
+    # Same rule for the utsname fingerprint: only a profile that pins its own
+    # gets the macros, so PW3's generated header keeps its literals in stage.c
+    # and stays byte for byte the same.
+    pin = p.get('kernel_identity')
+    if pin:
+        out.append('#define TARGET_KERNEL_RELEASE %s' % c_string(pin['release']))
+        out.append('#define TARGET_KERNEL_VERSION %s' % c_string(pin['version']))
+        out.append('#define TARGET_KERNEL_MACHINE %s' % c_string(pin['machine']))
     lock = '\n'.join(out) + '\n'
     lock += ranges('target_ram', p['ram']) + ranges('target_forbidden', p['forbidden'])
     lock += ranges('target_footprint', [[hex(footprint['start']), hex(footprint['bytes'])]])
