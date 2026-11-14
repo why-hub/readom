@@ -384,3 +384,21 @@ holds depends on the stock module loading into this project's kernel, which has 
 
 What `config/models/duet.config` records is this conclusion, not a string of "enable brcmfmac" options --
 the configuration could be written, but it would enable a driver that does not build, and that is hiding the problem inside the build.
+
+
+### 2026-11-14 addendum: the four stock files are measured, half of route A lands
+
+Section 7 ended with "that needs a device, which is where this stops". An Oasis 1
+has now been measured: the paths and sizes of `nvram.txt` (906 bytes),
+`fw_bcmdhd_sr.bin`, `dhd.ko` and `falcon.ko` in the stock p1 partition, plus the
+device's `/proc/cmdline` and `/proc/version`, are in
+`design/duet-wifi-device-data.en.md`.
+
+`boot/devicedata/` therefore turns the Wi-Fi archive from two hard-coded PW3
+paths into a per-model plan and adds `dd_duet_5_16_2_1_1`: every start reads
+those four files from the stock system into its cpio, which is what the rule on
+device-private data requires. A C test covers duet identity and six cpio entries
+and reverses the 906-byte calibration check. **This is only the "get the files"
+half**: the load branch, module parameters, rewriting 0310/1045, the 2G/2G
+private page table and the runtime ABI of the factory modules still need a
+device -- see the six "still unverified" items in that note.
