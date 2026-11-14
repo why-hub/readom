@@ -31,6 +31,16 @@ static void set32(unsigned char *p, uint32_t v) { for (int i = 0; i < 4; ++i) p[
 #define STOCK "log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M"
 #define RELEASE "3.0.35-lab126"
 #define VERSION "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023"
+/* duet, stock 5.16.2.1.1: measured /proc/cmdline (without rootwait/root=)
+ * and the build number in /proc/version. The board string is the same Wario
+ * one -- duet shares board-mx6sl_wario.c -- so only these two differ. */
+#define DUET_STOCK "no_console_suspend log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M"
+#define DUET_VERSION "#6 PREEMPT Tue Aug 1 12:57:50 UTC 2023"
+#define DUET_VER_LINE "Linux version " RELEASE " (builder@eink-builds) (gcc version 4.9.1 (GCC) ) " DUET_VERSION "\n"
+#define DUET_NVRAM "/opt/brcm_4343w/wifi/nvram/nvram.txt"
+#define DUET_FW "/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin"
+#define DUET_DHD "/lib/modules/3.0.35-lab126/extra/dhd.ko"
+#define DUET_FALCON "/lib/modules/3.0.35-lab126/extra/falcon.ko"
 #define CMDLINE STOCK " rdinit=/pw3-testfile-init androidboot.hardware=pw3"
 
 static unsigned char wbf[4096], wrf[20000];
@@ -323,6 +333,52 @@ static void test_module_rules(void) {
     dd_free(&b);
 }
 
+
+/* The Oasis 1 plan: measured stock identity, and four private files carried
+ * into that start's cpio. The contents here are invented stand-ins -- only the
+ * paths and the calibration's size are facts about the model. The reverse case
+ * is what makes the 906-byte check a check: one byte short must stop the start
+ * and name the reason, rather than silently archiving a different part. */
+static void test_duet_wifi_assets(void) {
+    struct dd_why why = {{0}, 0};
+    /* the stock line itself, not DUET_STOCK plus another prefix: the identity
+     * check strips rootwait/root= and compares the rest verbatim */
+    puts_("/proc/cmdline", "no_console_suspend rootwait log_pos_goal=0x8fff0000 console=ttymxc0,115200 root=/dev/mmcblk0p1 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M\n");
+    puts_("/proc/version", DUET_VER_LINE);
+    CHECK(dd_device_matches(root, &dd_duet_5_16_2_1_1, &why) == 0 && !why.text[0]);
+    /* reverse: PW3's build of the very same release is another firmware */
+    puts_("/proc/version", "Linux version " RELEASE " (build@lab126) (gcc version 4.9.3) " VERSION "\n");
+    CHECK(dd_device_matches(root, &dd_duet_5_16_2_1_1, &why) == -1 && why.other_device);
+    puts_("/proc/version", DUET_VER_LINE);
+
+    static unsigned char nvram[906];
+    memset(nvram, 0x4e, sizeof(nvram));
+    put(DUET_NVRAM, nvram, sizeof(nvram));
+    puts_(DUET_FW, "firmware");
+    puts_(DUET_DHD, "dhd");
+    puts_(DUET_FALCON, "falcon");
+
+    struct dd_build build = {CMDLINE, "schema=1\nadb_key_sha256=none\n", NULL, 0};
+    struct dd_buf a = {0};
+    CHECK(dd_archive(root, &dd_duet_5_16_2_1_1, &build, &a, &why) == 0);
+    struct entry e[32];
+    unsigned n = parse(&a, e, 32);
+    const struct entry *nv = find(e, n, "firmware/image/brcm_4343w/nvram.txt");
+    CHECK(nv && nv->size == sizeof(nvram));
+    CHECK(find(e, n, "firmware/image/brcm_4343w/fw_bcmdhd_sr.bin"));
+    CHECK(find(e, n, "firmware/image/brcm_4343w/modules/dhd.ko"));
+    CHECK(find(e, n, "firmware/image/brcm_4343w/modules/falcon.ko"));
+    CHECK(find(e, n, "firmware/image/epdc/duet/waveform.pw3.gz"));
+    CHECK(find(e, n, "pw3-preinit.conf"));
+    dd_free(&a);
+
+    /* reverse: a 905-byte calibration is not this model's NVRAM */
+    put(DUET_NVRAM, nvram, sizeof(nvram) - 1);
+    CHECK(dd_archive(root, &dd_duet_5_16_2_1_1, &build, &a, &why) == -1 && why.text[0] && a.size == 0);
+    put(DUET_NVRAM, nvram, sizeof(nvram));
+    dd_free(&a);
+}
+
 int main(void) {
     const char *tmp = getenv("TMPDIR");
     snprintf(root, sizeof(root), "%s/devicedata-test-XXXXXX", tmp && *tmp ? tmp : "/tmp");
@@ -333,6 +389,7 @@ int main(void) {
     test_envelope_and_gzip();
     test_archive();
     test_module_rules();
+    test_duet_wifi_assets();
     char command[600];
     snprintf(command, sizeof(command), "rm -rf '%s'", root);
     if (system(command)) fprintf(stderr, "could not remove %s\n", root);
