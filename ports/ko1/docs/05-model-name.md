@@ -43,8 +43,8 @@ SELinux 标签全不变，**只需要重 pin preinit 里的 `system.img` 哈希*
 
 ## 状态
 
-已部署（`system.img` 换成新哈希、preinit pin 同步、部署自检 `OVERALL PASS`），
-**还差一次真机确认**——进「设置 → 设备信息」看型号是不是 `Kindle Oasis 1`。
+已部署并在真机确认：「设置 → 设备信息」显示 `Kindle Oasis 1`。
+部署时 `system.img` 换成新哈希、preinit pin 同步、自检 `OVERALL PASS`。
 
 ## 值不值得改
 
