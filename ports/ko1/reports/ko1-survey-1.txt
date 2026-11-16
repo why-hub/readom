@@ -1,0 +1,465 @@
+
+===== 0. 基本信息 =====
+脚本版本: ko1-survey v1
+Sat Nov 14 15:19:58 GMT+8:0100 2026
+uname: Linux kindle 3.0.35-lab126 #6 PREEMPT Tue Aug 1 12:57:50 UTC 2023 armv7l GNU/Linux
+
+===== 1. 版本与板型 =====
+--- /etc/version.txt
+System Software Version: 002-juno_16020101_whisky_duet-409755
+Tue Aug  1 14:23:18 UTC 2023
+com.lab126.eink.whisky.os
+--- /etc/prettyversion.txt
+Kindle 5.16.2.1.1 (~~otaVersion~~)
+--- /proc/version
+Linux version 3.0.35-lab126 (builder@eink-builds) (gcc version 4.9.1 (GCC) ) #6 PREEMPT Tue Aug 1 12:57:50 UTC 2023
+--- /proc/cmdline
+no_console_suspend rootwait log_pos_goal=0x8fff0000 console=ttymxc0,115200 root=/dev/mmcblk0p1 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M
+--- 板 ID（idme，若有）
+usage: idme <ARGUMENTS>
+    --serial S    Sets the serial number S
+    --board B     Sets the board id B
+    --pcbsn PCB   Sets the pcb serial number PCB
+    --mac M       Sets the MAC address M 
+    --btmac M     Sets the Bluetooth MAC address M 
+    --mfg ID      Sets the Manufacturer Code
+    --bootmode BM Sets the bootmode value
+    --postmode PM Sets the postmode value
+    --oldboot BM  Sets the oldboot value
+    --qbcount N   Sets the number of quickboots N
+    --vcom V Sets the vcom value
+    -s            Shows all existing values
+Devmode enabled
+Reading vars from temp storage...
+usage: idme <ARGUMENTS>
+    --serial S    Sets the serial number S
+    --board B     Sets the board id B
+    --pcbsn PCB   Sets the pcb serial number PCB
+    --mac M       Sets the MAC address M 
+    --btmac M     Sets the Bluetooth MAC address M 
+    --mfg ID      Sets the Manufacturer Code
+    --bootmode BM Sets the bootmode value
+    --postmode PM Sets the postmode value
+    --oldboot BM  Sets the oldboot value
+    --qbcount N   Sets the number of quickboots N
+    --vcom V Sets the vcom value
+    -s            Shows all existing values
+Devmode enabled
+Reading vars from temp storage...
+--- /proc/board_id: <redacted: per-device board id omitted>
+
+===== 2. 内核配置（能拿到就是大胜） =====
+# CONFIG_ATH6KL is not set
+# CONFIG_CFG80211_DEBUGFS is not set
+# CONFIG_CFG80211_DEVELOPER_WARNINGS is not set
+# CONFIG_CFG80211_REG_DEBUG is not set
+# CONFIG_COMPAT_WIRELESS is not set
+# CONFIG_COMPAT_WIRELESS_MODULES is not set
+# CONFIG_HOSTAP_FIRMWARE is not set
+# CONFIG_LIB80211_DEBUG is not set
+# CONFIG_LOCALVERSION_AUTO is not set
+# CONFIG_MAX77696_CHARDEV is not set
+# CONFIG_MMC_ARMMMCI is not set
+# CONFIG_MMC_CLKGATE is not set
+# CONFIG_MMC_DW is not set
+# CONFIG_MMC_SPI is not set
+# CONFIG_MMC_TEST is not set
+# CONFIG_MMC_USHC is not set
+# CONFIG_MMC_VUB300 is not set
+# CONFIG_MODULE_FORCE_LOAD is not set
+# CONFIG_MODULE_SRCVERSION_ALL is not set
+# CONFIG_SDIO_UART is not set
+# CONFIG_VMSPLIT_1G is not set
+# CONFIG_VMSPLIT_3G is not set
+CONFIG_CFG80211=y
+CONFIG_CFG80211_DEFAULT_PS=y
+CONFIG_CFG80211_INTERNAL_REGDB=y
+CONFIG_CFG80211_WEXT=y
+CONFIG_HOSTAP=y
+CONFIG_LIB80211=y
+CONFIG_LIB80211_CRYPT_CCMP=y
+CONFIG_LIB80211_CRYPT_TKIP=y
+CONFIG_LIB80211_CRYPT_WEP=y
+CONFIG_LOCALVERSION="-lab126"
+CONFIG_MMC=y
+CONFIG_MMC_BLOCK=y
+CONFIG_MMC_BLOCK_BOUNCE=y
+CONFIG_MMC_BLOCK_MINORS=8
+CONFIG_MMC_DEBUG=y
+CONFIG_MMC_SDHCI=y
+CONFIG_MMC_SDHCI_ESDHC_IMX=y
+CONFIG_MMC_SDHCI_IO_ACCESSORS=y
+CONFIG_MMC_SDHCI_PLTFM=y
+CONFIG_MMC_UNSAFE_RESUME=y
+CONFIG_MODULE_FORCE_UNLOAD=y
+CONFIG_MODULE_UNLOAD=y
+CONFIG_VMSPLIT_2G=y
+CONFIG_WEXT_CORE=y
+CONFIG_WEXT_PRIV=y
+CONFIG_WEXT_PROC=y
+CONFIG_WEXT_SPY=y
+CONFIG_WLAN=y
+
+===== 3. 已加载的模块 =====
+g_file_storage 35771 0 - Live 0x7f360000
+arcotg_udc 26418 1 g_file_storage, Live 0x7f354000
+ehci_hcd 54008 0 - Live 0x7f340000
+fsl_otg_arc 15677 3 ehci_hcd, Live 0x7f338000
+dhd 444748 0 - Live 0x7f20a000
+gpiokey_pgturn 1117 0 - Live 0x7f09d000
+gpiokey 3324 1 - Live 0x7f099000
+cyttsp4_mt_b 8204 0 - Live 0x7f092000
+cyttsp4_core 41388 2 - Live 0x7f080000
+cyttsp4_i2c 2587 1 - Live 0x7f07c000
+bma2x2 27538 0 - Live 0x7f070000
+bstclass 1804 2 bma2x2, Live 0x7f06c000
+bma2x2_wario 801 0 - Live 0x7f068000
+falcon 22825 0 [permanent], Live 0x7f05e000 (P)
+fuse 60392 2 - Live 0x7f048000
+soda_device 2111 0 - Live 0x7f028000 (P)
+mxc_epdc_fb 95206 3 - Live 0x7f006000
+mxc_epdc_eink 8771 1 mxc_epdc_fb, Live 0x7f000000 (P)
+
+===== 4. 模块文件盘点（根文件系统内，不下探 user 分区） =====
+/lib/modules/3.0.35-lab126/extra/bma2x2.ko
+/lib/modules/3.0.35-lab126/extra/bma2x2_wario.ko
+/lib/modules/3.0.35-lab126/extra/bstclass.ko
+/lib/modules/3.0.35-lab126/extra/dhd.ko
+/lib/modules/3.0.35-lab126/extra/falcon.ko
+/lib/modules/3.0.35-lab126/extra/gpiokey.ko
+/lib/modules/3.0.35-lab126/extra/gpiokey_pgturn.ko
+/lib/modules/3.0.35-lab126/extra/mxc_epdc_eink.ko
+/lib/modules/3.0.35-lab126/kernel/crypto/tcrypt.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/misc/als_max44009.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/misc/smtc/smprox.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/cyttsp4_core.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/cyttsp4_debug.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/cyttsp4_device_access.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/cyttsp4_i2c.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/cyttsp4_loader.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/cyttsp4_mt_b.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/input/touchscreen/zforce2.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/misc/mxs-perfmon.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/net/ppp_async.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/net/ppp_generic.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/net/slhc.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/net/wan/mwan.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/net/wan/pkt_monitor.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/class/cdc-acm.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/gadget/arcotg_udc.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/gadget/g_ether.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/gadget/g_file_storage.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/gadget/g_serial.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/host/ehci-hcd.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/otg/fsl_otg_arc.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/serial/option.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/serial/usb_wwan.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/usb/serial/usbserial.ko
+/lib/modules/3.0.35-lab126/kernel/drivers/video/mxc/mxc_epdc_fb.ko
+/lib/modules/3.0.35-lab126/kernel/fs/fuse/fuse.ko
+/lib/modules/3.0.35-lab126/kernel/fs/nls/nls_ascii.ko
+/lib/modules/3.0.35-lab126/kernel/fs/nls/nls_utf8.ko
+/lib/modules/3.0.35-lab126/kernel/lib/crc-ccitt.ko
+
+===== 5. 无线相关模块的 .modinfo =====
+--- /lib/modules/3.0.35-lab126/extra/dhd.ko
+-rw-r--r--    1 root     root        603828 Aug  1  2023 /lib/modules/3.0.35-lab126/extra/dhd.ko
+filename:       /lib/modules/3.0.35-lab126/extra/dhd.ko
+license:        GPL v2
+alias:          sdio:c00v*d*
+alias:          sdio:c*v02D0dA8E7*
+alias:          sdio:c*v02D0d4324*
+alias:          sdio:c*v02D0d4334*
+alias:          sdio:c*v02D0d4330*
+alias:          sdio:c*v02D0d4319*
+alias:          sdio:c*v02D0d4329*
+alias:          sdio:c*v02D0d0493*
+alias:          sdio:c*v02D0d0492*
+alias:          sdio:c*v02D0d0000*
+depends:        
+vermagic:       3.0.35-lab126 preempt mod_unload ARMv7 p2v8 
+parm:           dhd_oob_gpio_num:DHD oob gpio number (int)
+parm:           g_assert_type:int
+parm:           sd_msglevel:uint
+parm:           sd_power:uint
+parm:           sd_clock:uint
+parm:           sd_divisor:uint
+parm:           sd_sdmode:uint
+parm:           sd_hiok:uint
+parm:           sd_f2_blocksize:int
+parm:           dhd_doflow:uint
+parm:           dhd_dpcpoll:uint
+parm:           info_string:string
+parm:           op_mode:int
+parm:           dhd_msg_level:int
+parm:           disable_proptx:int
+parm:           firmware_path:string
+parm:           nvram_path:string
+parm:           dhd_watchdog_ms:uint
+parm:           dhd_slpauto:uint
+parm:           dhd_pkt_filter_init:uint
+parm:           dhd_master_mode:uint
+parm:           dhd_watchdog_prio:int
+parm:           dhd_dpc_prio:int
+parm:           dhd_rxf_prio:int
+parm:           passive_channel_skip:int
+parm:           dhd_dongle_ramsize:int
+parm:           instance_base:int
+parm:           iface_name:string
+parm:           dhd_idletime:int
+parm:           dhd_poll:uint
+parm:           dhd_intr:uint
+parm:           dhd_sdiod_drive_strength:uint
+parm:           dhd_txbound:uint
+parm:           dhd_rxbound:uint
+parm:           dhd_deferred_tx:uint
+parm:           clockoverride:SDIO card clock override (int)
+  [从 .modinfo 段抠出来的字段]
+parm=clockoverride:SDIO card clock override
+parm=dhd_oob_gpio_num:DHD oob gpio number
+alias=sdio:c00v*d*
+alias=sdio:c*v02D0dA8E7*
+alias=sdio:c*v02D0d4324*
+alias=sdio:c*v02D0d4334*
+alias=sdio:c*v02D0d4330*
+alias=sdio:c*v02D0d4319*
+alias=sdio:c*v02D0d4329*
+alias=sdio:c*v02D0d0493*
+alias=sdio:c*v02D0d0492*
+alias=sdio:c*v02D0d0000*
+depends=
+vermagic=3.0.35-lab126 preempt mod_unload ARMv7 p2v8 
+  已拷到 /mnt/us/ko1-modules/
+
+===== 6. 固件与 NVRAM 校准文件 =====
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0062.0363.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0083.0380.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0096.0406.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0096.0411.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0096.0416.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0121.0473.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0121.0474.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0121.0497.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0152.0515.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0152.0516.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0152.0517.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0031.0138_RC.hcd
+/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_mfg.bin
+/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin
+/opt/brcm_4343w/wifi/nvram/nvram.txt
+
+===== 7. 内核符号表（能否满足原厂模块的依赖） =====
+总符号数: 33660
+--- cfg80211_*: 138
+--- brcm/dhd/bcmdhd 相关:
+80235390 t brcm_wifi_get_mac_addr
+80236e28 T brcm_gpio_wifi_set_normal_mode
+8023701c T brcm_gpio_wifi_bt_init
+802375c4 T brcm_gpio_wifi_power_enable
+802375e0 T brcm_gpio_bt_power_enable
+7f20bf8c t bcmsdh_sdmmc_resume_worker	[dhd]
+7f20bcdc t bcmsdh_sdmmc_resume	[dhd]
+7f20bdb8 t bcmsdh_sdmmc_probe	[dhd]
+7f20be08 t bcmsdh_sdmmc_suspend	[dhd]
+7f20becc t bcmsdh_sdmmc_remove	[dhd]
+7f20c0b0 t dhd_pm_callback	[dhd]
+7f20c0c4 t dhd_reboot_callback	[dhd]
+7f20c10c t dhd_ethtool_get_drvinfo	[dhd]
+7f20c154 t dhd_dpc	[dhd]
+7f20c1c0 t dhd_ethtool	[dhd]
+7f20c394 t dhd_os_rxflock.isra.20	[dhd]
+7f20c3c0 t dhd_os_rxfunlock.isra.21	[dhd]
+7f20c3ec t dhd_rxf_thread	[dhd]
+7f20c76c t dhd_get_stats	[dhd]
+7f20c7f4 t dhd_set_mac_address	[dhd]
+--- cfg80211 导出的前 10 条:
+80026c34 t cfg80211_init
+80587268 t cfg80211_rfkill_poll
+80587288 t cfg80211_rfkill_sync_work
+80587948 t cfg80211_netdev_notifier_call
+80587ebc t cfg80211_event_work
+80587f28 t cfg80211_rfkill_set_block
+805884b4 T cfg80211_rdev_by_wiphy_idx
+805886fc T cfg80211_get_dev_from_info
+80588748 T cfg80211_get_dev_from_ifindex
+805887f0 T cfg80211_dev_rename
+
+===== 8. dmesg 里的无线与 SDIO 记录（已按关键字过滤） =====
+[156328.050369] CFG80211-ERROR) wl_cfg80211_reg_notifier : Set country code C* from User
+[156328.408704] CFG80211-ERROR) wl_cfg80211_connect : Connecting with ssid "C*************Q", len (15)
+[156328.984621] CFG80211-ERROR) wl_notify_connect_status : Authenticated with e2:a4:1f
+[156328.989674] CFG80211-ERROR) wl_notify_connect_status : Associated with e2:a4:1f
+[156328.989689] wl_bss_connect_done succeeded with e2:a4:1f
+[156329.017927] wl_bss_connect_done succeeded with e2:a4:1f
+[156329.238614] CFG80211-ERROR) wl_cfg80211_disconnect : Reason 3
+[156329.246794] CFG80211-ERROR) wl_cfg80211_reg_notifier : reg_notifier for intiator:0 not supported : set default
+[156329.247440] link down if wlan0 may call cfg80211_disconnected. event : 16, reason=2 from e2:a4:1f
+[156330.110696] wl_bss_connect_done succeeded with e2:a4:1f
+[156330.144274] wl_bss_connect_done succeeded with e2:a4:1f
+[156446.050669] CFG80211-ERROR) wl_cfg80211_disconnect : Reason 3
+[156446.057745] CFG80211-ERROR) wl_is_linkdown : Link down Reason : WLC_E_LINK
+[156446.057761] link down if wlan0 may call cfg80211_disconnected. event : 16, reason=2 from e2:a4:1f
+[156446.059402] CFG80211-ERROR) wl_cfg80211_reg_notifier : reg_notifier for intiator:0 not supported : set default
+[156446.059414] CFG80211-ERROR) wl_cfg80211_reg_notifier : Set country code 0* from User
+[156446.203257] CFG80211-ERROR) wl_cfg80211_reg_notifier : Set country code C* from User
+[156562.299830] CFG80211-ERROR) wl_cfg80211_connect : Connecting with ssid "C*************Q", len (15)
+[156562.872374] CFG80211-ERROR) wl_notify_connect_status : Authenticated with e2:a4:1f
+[156562.878193] CFG80211-ERROR) wl_notify_connect_status : Associated with e2:a4:1f
+[156562.878209] wl_bss_connect_done succeeded with e2:a4:1f
+[156562.919977] wl_bss_connect_done succeeded with e2:a4:1f
+[156577.252689] CFG80211-ERROR) wl_cfg80211_disconnect : Reason 3
+[156577.268121] CFG80211-ERROR) wl_is_linkdown : Link down Reason : WLC_E_LINK
+[156577.268136] link down if wlan0 may call cfg80211_disconnected. event : 16, reason=2 from e2:a4:1f
+[156577.268448] CFG80211-ERROR) wl_cfg80211_reg_notifier : reg_notifier for intiator:0 not supported : set default
+[156577.268461] CFG80211-ERROR) wl_cfg80211_reg_notifier : Set country code 0* from User
+[156577.423154] CFG80211-ERROR) wl_cfg80211_reg_notifier : Set country code C* from User
+[156593.523122] CFG80211-ERROR) wl_cfg80211_connect : Connecting with ssid "C*************Q", len (15)
+[156594.105806] CFG80211-ERROR) wl_notify_connect_status : Authenticated with e2:a4:1f
+[156594.112312] CFG80211-ERROR) wl_notify_connect_status : Associated with e2:a4:1f
+[156594.112328] wl_bss_connect_done succeeded with e2:a4:1f
+[156594.150675] wl_bss_connect_done succeeded with e2:a4:1f
+
+===== 9. 网络配置与网卡 =====
+-rw-r--r--    1 root     root           139 Aug  1  2023 /etc/wpa_supplicant.conf
+
+/etc/network:
+total 5
+drwxr-xr-x    2 root     root          1024 Aug  1  2023 if-down.d
+drwxr-xr-x    2 root     root          1024 Aug  1  2023 if-post-down.d
+drwxr-xr-x    2 root     root          1024 Aug  1  2023 if-pre-up.d
+drwxr-xr-x    2 root     root          1024 Aug  1  2023 if-up.d
+-rw-r--r--    1 root     root           152 Aug  1  2023 interfaces
+--- /proc/net/dev
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 3038187    9680    0    0    0     0          0         0  3038187    9680    0    0    0     0       0          0
+  p2p0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+ wlan0: 2300440    3092    0  162    0     0          0         0   616326    3352    0    0    0     0       0          0
+--- 无线接口
+lo
+p2p0
+wlan0
+wireless: /sys/class/net/p2p0
+wireless: /sys/class/net/wlan0
+
+===== 10. 分区与挂载 =====
+rootfs / rootfs rw 0 0
+/dev/root / ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+none /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+none /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+tmpfs /dev tmpfs rw,relatime,mode=755 0 0
+tmpfs /dev/shm tmpfs rw,relatime 0 0
+devpts /dev/pts devpts rw,relatime,gid=5,mode=620 0 0
+tmpfs /var tmpfs rw,relatime,size=65536k 0 0
+tmpfs /mnt/kfxcache tmpfs rw,relatime,size=256000k 0 0
+/dev/loop/2 /usr/share/X11/xkb squashfs ro,noatime,nodiratime 0 0
+/dev/loop/3 /usr/java/lib/fonts squashfs ro,noatime,nodiratime 0 0
+/dev/loop/4 /etc/kdb.src squashfs ro,noatime,nodiratime 0 0
+/dev/loop/5 /usr/lib/locale squashfs ro,noatime,nodiratime 0 0
+/dev/loop/6 /usr/share/keyboard squashfs ro,noatime,nodiratime 0 0
+/dev/loop/7 /opt/var/local squashfs ro,noatime,nodiratime 0 0
+/dev/loop/8 /etc/uks squashfs ro,noatime,nodiratime 0 0
+debugfs /sys/kernel/debug debugfs rw,relatime 0 0
+/dev/mmcblk0p3 /var/local ext3 rw,relatime,errors=continue,user_xattr,barrier=0,data=writeback 0 0
+/dev/mmcblk0p2 /usr/share/nh ext3 rw,relatime,barrier=0,data=writeback 0 0
+fsp /mnt/us fuse.fsp rw,nosuid,nodev,noatime,user_id=0,group_id=0,allow_other 0 0
+/dev/loop/9 /var/local/font/mnt/zh-Hans_font squashfs ro,noatime,nodiratime 0 0
+/dev/loop/0 /mnt/base-us vfat rw,noexec,noatime,nodiratime,fmask=0000,dmask=0000,allow_utime=0022,codepage=cp437,iocharset=iso8859-1,shortname=mixed,utf8,errors=remount-ro 0 0
+tmpfs /chroot/dev/log tmpfs rw,relatime,mode=755 0 0
+tmpfs /chroot/dev/random tmpfs rw,relatime,mode=755 0 0
+tmpfs /chroot/dev/urandom tmpfs rw,relatime,mode=755 0 0
+tmpfs /chroot/dev/shm tmpfs rw,relatime 0 0
+none /chroot/sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+tmpfs /chroot/var/cache tmpfs rw,relatime,size=65536k 0 0
+tmpfs /chroot/var/lock tmpfs rw,relatime,size=65536k 0 0
+tmpfs /chroot/var/run tmpfs rw,relatime,size=65536k 0 0
+/dev/loop/4 /chroot/etc/kdb.src squashfs ro,noatime,nodiratime 0 0
+/dev/mmcblk0p3 /chroot/var/local ext3 rw,relatime,errors=continue,user_xattr,barrier=0,data=writeback 0 0
+fsp /chroot/mnt/us fuse.fsp rw,nosuid,nodev,noatime,user_id=0,group_id=0,allow_other 0 0
+/dev/root /chroot/etc/fonts ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/root /chroot/etc/gtk-2.0 ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/root /chroot/etc/pango ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/root /chroot/etc/resolv.d ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/root /chroot/usr/share ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/root /chroot/usr/ssl ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/loop/6 /chroot/usr/share/keyboard squashfs ro,noatime,nodiratime 0 0
+/dev/loop/3 /chroot/usr/java/lib/fonts squashfs ro,noatime,nodiratime 0 0
+/dev/loop/2 /chroot/usr/share/X11/xkb squashfs ro,noatime,nodiratime 0 0
+/dev/root /chroot/usr/lib/pango ext3 ro,noatime,nodiratime,barrier=0,data=writeback 0 0
+/dev/loop/5 /chroot/usr/lib/locale squashfs ro,noatime,nodiratime 0 0
+Filesystem                Size      Used Available Use% Mounted on
+/dev/root               437.4M    395.7M     19.8M  95% /
+tmpfs                   249.1M     96.0K    249.0M   0% /dev
+tmpfs                   249.1M         0    249.1M   0% /dev/shm
+tmpfs                    64.0M      8.1M     55.9M  13% /var
+tmpfs                   250.0M         0    250.0M   0% /mnt/kfxcache
+/dev/loop/2             384.0K    384.0K         0 100% /usr/share/X11/xkb
+/dev/loop/3              80.0M     80.0M         0 100% /usr/java/lib/fonts
+/dev/loop/4             128.0K    128.0K         0 100% /etc/kdb.src
+/dev/loop/5             768.0K    768.0K         0 100% /usr/lib/locale
+/dev/loop/6              14.3M     14.3M         0 100% /usr/share/keyboard
+/dev/loop/7               1.9M      1.9M         0 100% /opt/var/local
+/dev/loop/8             128.0K    128.0K         0 100% /etc/uks
+/dev/mmcblk0p3           60.0M     18.7M     38.1M  33% /var/local
+/dev/mmcblk0p2           62.2M      4.2M     54.9M   7% /usr/share/nh
+fsp                       2.8G      1.6G      1.2G  57% /mnt/us
+/dev/loop/9              36.0M     36.0M         0 100% /var/local/font/mnt/zh-Hans_font
+/dev/loop/0               2.8G      1.6G      1.2G  57% /mnt/base-us
+tmpfs                   249.1M     96.0K    249.0M   0% /chroot/dev/log
+tmpfs                   249.1M     96.0K    249.0M   0% /chroot/dev/random
+tmpfs                   249.1M     96.0K    249.0M   0% /chroot/dev/urandom
+tmpfs                   249.1M         0    249.1M   0% /chroot/dev/shm
+tmpfs                    64.0M      8.1M     55.9M  13% /chroot/var/cache
+tmpfs                    64.0M      8.1M     55.9M  13% /chroot/var/lock
+tmpfs                    64.0M      8.1M     55.9M  13% /chroot/var/run
+/dev/loop/4             128.0K    128.0K         0 100% /chroot/etc/kdb.src
+/dev/mmcblk0p3           60.0M     18.7M     38.1M  33% /chroot/var/local
+fsp                       2.8G      1.6G      1.2G  57% /chroot/mnt/us
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/etc/fonts
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/etc/gtk-2.0
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/etc/pango
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/etc/resolv.d
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/usr/share
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/usr/ssl
+/dev/loop/6              14.3M     14.3M         0 100% /chroot/usr/share/keyboard
+/dev/loop/3              80.0M     80.0M         0 100% /chroot/usr/java/lib/fonts
+/dev/loop/2             384.0K    384.0K         0 100% /chroot/usr/share/X11/xkb
+/dev/root               437.4M    395.7M     19.8M  95% /chroot/usr/lib/pango
+/dev/loop/5             768.0K    768.0K         0 100% /chroot/usr/lib/locale
+
+===== 11. 模块区与模块目录结构 =====
+total 1
+drwxr-xr-x    4 root     root          1024 Aug 12  2023 3.0.35-lab126
+/lib/modules
+/lib/modules/3.0.35-lab126
+/lib/modules/3.0.35-lab126/modules.order
+/lib/modules/3.0.35-lab126/modules.builtin
+/lib/modules/3.0.35-lab126/kernel
+/lib/modules/3.0.35-lab126/kernel/drivers
+/lib/modules/3.0.35-lab126/kernel/crypto
+/lib/modules/3.0.35-lab126/kernel/fs
+/lib/modules/3.0.35-lab126/kernel/lib
+/lib/modules/3.0.35-lab126/extra
+/lib/modules/3.0.35-lab126/extra/mxc_epdc_eink.ko
+/lib/modules/3.0.35-lab126/extra/gpiokey.ko
+/lib/modules/3.0.35-lab126/extra/gpiokey_pgturn.ko
+/lib/modules/3.0.35-lab126/extra/bma2x2.ko
+/lib/modules/3.0.35-lab126/extra/bma2x2_wario.ko
+/lib/modules/3.0.35-lab126/extra/bstclass.ko
+/lib/modules/3.0.35-lab126/extra/dhd.ko
+/lib/modules/3.0.35-lab126/extra/falcon.ko
+/lib/modules/3.0.35-lab126/modules.pcimap
+/lib/modules/3.0.35-lab126/modules.dep
+/lib/modules/3.0.35-lab126/modules.ieee1394map
+/lib/modules/3.0.35-lab126/modules.usbmap
+/lib/modules/3.0.35-lab126/modules.ccwmap
+/lib/modules/3.0.35-lab126/modules.isapnpmap
+/lib/modules/3.0.35-lab126/modules.inputmap
+/lib/modules/3.0.35-lab126/modules.ofmap
+/lib/modules/3.0.35-lab126/modules.seriomap
+/lib/modules/3.0.35-lab126/modules.alias
+/lib/modules/3.0.35-lab126/modules.symbols
+
+===== 12. 完 =====
+报告结束。请把 /mnt/us/ko1-report.txt 和 /mnt/us/ko1-modules/ 整个拷到电脑上。
+已主动省略：序列号、MAC 地址、Wi-Fi 名称。若你发现仍有残留，删掉那几行再发。

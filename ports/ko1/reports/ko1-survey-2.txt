@@ -1,0 +1,153 @@
+
+===== 0. 基本信息 =====
+Sat Nov 14 15:29:26 GMT+8:0100 2026
+Linux kindle 3.0.35-lab126 #6 PREEMPT Tue Aug 1 12:57:50 UTC 2023 armv7l GNU/Linux
+
+===== 1. dhd 运行时参数（最准的一份，直接读 sysfs） =====
+clockoverride                = 0
+dhd_doflow                   = 1
+dhd_dpcpoll                  = 0
+dhd_oob_gpio_num             = -1
+disable_proptx               = 0
+firmware_path                = /opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin
+info_string                  = 
+instance_base                = 0
+nvram_path                   = /opt/brcm_4343w/wifi/nvram/nvram.txt
+op_mode                      = 0
+passive_channel_skip         = 0
+
+===== 2. 谁加载了 dhd（在启动脚本里找） =====
+/etc/upstart/display
+/etc/upstart/cyttsp
+/etc/upstart/cyttsp5
+/etc/upstart/haptics
+/etc/upstart/whiskey_button
+/etc/upstart/pt5
+/etc/upstart/stylus
+/etc/upstart/touch
+/etc/upstart/zforce
+/etc/upstart/zforce2
+/etc/upstart/zforce2_heisenberg
+/etc/upstart/functions
+/etc/upstart/filesystems_userstore.conf
+/etc/upstart/modules.conf
+/etc/upstart/phd.conf
+/var/local/mesquite/shared/javascripts/encodedJquery.js
+/var/local/mesquite/prime/javascripts/images.js
+/var/local/printklogs/14.log
+/var/local/printklogs/15.log
+/var/local/printklogs/10.log
+/var/local/printklogs/16.log
+/var/local/printklogs/06.log
+/var/local/printklogs/02.log
+/var/local/printklogs/18.log
+/var/local/printklogs/05.log
+/var/local/printklogs/20.log
+/var/local/printklogs/13.log
+/var/local/printklogs/01.log
+/var/local/printklogs/19.log
+
+===== 3. 加载命令本身 =====
+/etc/sysconfig/platform_variables:23:wifim_START_CMD="modprobe dhd iface_name=wlan0"
+/etc/sysconfig/platform_variables:24:wifim_STOP_CMD="modprobe -r dhd"
+/var/local/printklogs/06.log:259:<4>[69899.599140] modprobe:31627 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/06.log:261:<4>[69899.599159] modprobe:31627 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/06.log:264:<4>[69899.599210] modprobe:31627 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/18.log:21:<4>[  281.596619] modprobe:9439 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/18.log:23:<4>[  281.596637] modprobe:9439 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/20.log:321:<4>[14284.631610] modprobe:7122 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/20.log:323:<4>[14284.631629] modprobe:7122 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/19.log:293:<4>[36467.519828] modprobe:18980 dhd_prot_ioctl: bus is down. we have nothing to do
+/var/local/printklogs/19.log:295:<4>[36467.519845] modprobe:18980 dhd_prot_ioctl: bus is down. we have nothing to do
+
+===== 4. modules.dep 里 dhd 与 falcon 的依赖 =====
+/lib/modules/3.0.35-lab126/extra/falcon.ko:
+/lib/modules/3.0.35-lab126/extra/dhd.ko:
+--- modules.order (末尾)
+kernel/drivers/input/touchscreen/cyttsp4_i2c.ko
+kernel/drivers/input/touchscreen/cyttsp4_mt_b.ko
+kernel/drivers/input/touchscreen/cyttsp4_device_access.ko
+kernel/drivers/input/touchscreen/cyttsp4_loader.ko
+kernel/drivers/input/touchscreen/cyttsp4_debug.ko
+kernel/drivers/input/misc/smtc/smprox.ko
+kernel/drivers/input/misc/als_max44009.ko
+kernel/lib/crc-ccitt.ko
+
+===== 5. 固件目录全貌 =====
+/opt/brcm_4343w
+/opt/brcm_4343w/bluetooth
+/opt/brcm_4343w/bluetooth/firmware
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0062.0363.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0083.0380.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0096.0406.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0096.0411.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0096.0416.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0121.0473.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0121.0474.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0121.0497.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0152.0515.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0152.0516.hcd
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0152.0517.hcd
+/opt/brcm_4343w/bluetooth/firmware/sample.wav
+/opt/brcm_4343w/bluetooth/firmware/BCM4343A1_001.002.009.0031.0138_RC.hcd
+/opt/brcm_4343w/wifi
+/opt/brcm_4343w/wifi/firmware
+/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_mfg.bin
+/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin
+/opt/brcm_4343w/wifi/nvram
+/opt/brcm_4343w/wifi/nvram/nvram.txt
+--- 文件大小
+-rwxr-xr-x    1 root     root        374673 Aug  1  2023 /opt/brcm_4343w/wifi/firmware/fw_bcmdhd_mfg.bin
+-rwxr-xr-x    1 root     root        357387 Aug  1  2023 /opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin
+-rwxr-xr-x    1 root     root           906 Aug  1  2023 /opt/brcm_4343w/wifi/nvram/nvram.txt
+
+===== 6. nvram.txt 的内容（前 20 行，去掉 MAC 与 SSID 相关行） =====
+# NVRAM file for BCM943430WLSELG
+# 2.4 GHz, 20 MHz BW mode
+
+# The following parameter values are just placeholders, need to be updated.
+manfid=0x2d0
+prodid=0x0726
+vendid=0x14e4
+devid=0x43e2
+boardtype=0x0726
+boardrev=0x1202
+boardnum=22
+sromrev=11
+boardflags=0x00404201
+xtalfreq=26000
+nocrc=1
+ag0=255
+aa2g=1
+ccode=XZ
+regrev=990
+
+
+===== 7. SDIO 卡识别情况 =====
+sdio:c00v02D0dA9A6
+sdio:c00v02D0dA9A6
+--- /sys/bus/sdio/devices/mmc1:0001:1
+0xa9a6
+0x02d0
+0x00
+--- /sys/bus/sdio/devices/mmc1:0001:2
+0xa9a6
+0x02d0
+0x00
+--- mmc 相关 dmesg
+
+===== 8. 是否有 wl 相关的用户态工具 =====
+有: wl
+有: ifconfig
+有: iwconfig
+有: wpa_supplicant
+有: udhcpc
+-rwxr-xr-x    1 root     root       1839252 Aug  1  2023 /usr/bin/wl
+--- /etc/wpa_supplicant.conf（去掉口令与 ssid）
+device_name=Kindle
+ctrl_interface=/var/run/wpa_supplicant
+ap_scan=2
+update_config=0    #added to prevent writes during WPS initializations
+
+===== 9. 完 =====
+报告结束，可以把 /mnt/us/ko1-report2.txt 拷走了。

@@ -1,0 +1,283 @@
+From b00e1597846699f9f674a5c5651ebe4d1cf87e4b Mon Sep 17 00:00:00 2001
+From: ko1 port <ko1@localhost>
+Date: Sat, 14 Nov 2026 20:47:32 +0800
+Subject: [PATCH 3/3] docs: record the Oasis 1 Wi-Fi assets measured on a
+ device
+
+Section 7 ended at needing a target device. One has now been measured: four stock paths and sizes, /proc/cmdline, /proc/version and the FAT mount, plus 185/185 symbols and byte-identical vermagic from a duet kernel build. Keep measured facts and the six still-unverified items apart; no device-private bytes enter the tree.
+---
+ config/models/duet.config                 | 27 +++++--
+ docs/design/duet-wifi-device-data.en.md   | 95 +++++++++++++++++++++++
+ docs/design/duet-wifi-device-data.md      | 73 +++++++++++++++++
+ docs/design/porting-to-other-models.en.md | 18 +++++
+ docs/design/porting-to-other-models.md    | 13 ++++
+ 5 files changed, 219 insertions(+), 7 deletions(-)
+ create mode 100644 docs/design/duet-wifi-device-data.en.md
+ create mode 100644 docs/design/duet-wifi-device-data.md
+
+diff --git a/config/models/duet.config b/config/models/duet.config
+index 6ef5811..388712a 100644
+--- a/config/models/duet.config
++++ b/config/models/duet.config
+@@ -37,11 +37,24 @@ CONFIG_ARCH_MMAP_RND_BITS=8
+ #
+ # So Oasis 1's Wi-Fi is a driver question, not a configuration one, and the
+ # answer this port already has for a driver it cannot build is the one to use:
+-# take the module off the device at install time. That needs a device, which
+-# is where this stops. (This used to say "the way the REAGL module is taken".
+-# It never was: the REAGL branch was removed unused on 2026-10-29.)
++# take the module off the device at install time (route A). The device half of
++# that is now measured, not guessed: docs/design/duet-wifi-device-data.md has
++# the four stock paths and their sizes, and boot/devicedata/ carries them as a
++# per-model plan. Reading them into the start's cpio needs no configuration at
++# all. What is still unproven is the other half -- loading those modules into
++# this kernel on a running duet -- which needs the device. (This used to say
++# "the way the REAGL module is taken". It never was: the REAGL branch was
++# removed unused on 2026-10-29.)
+ 
+-# This kernel is not the PW3's, and must not say it is: the module directory is
+-# named after this string, and a mismatch is how a module built for one model
+-# would be loaded on another.
+-CONFIG_LOCALVERSION="-lab126-duet-android81"
++# KO1/duet: the factory modules (dhd.ko, falcon.ko) are taken off the device
++# and loaded unchanged. Their vermagic, read from .modinfo on 2026-11-14, is
++# "3.0.35-lab126 preempt mod_unload ARMv7 p2v8 " -- every field except
++# UTS_RELEASE already matches this build (UP, PREEMPT, MODULE_UNLOAD, ARMv7
++# p2v8, no MODVERSIONS). Keeping the model suffix makes insmod reject them on
++# the release string alone, so the release must match the factory kernel.
++#
++# Measured 2026-11-14 on the duet build: 185/185 undefined symbols of the
++# factory dhd.ko are exported by this kernel's Module.symvers; vermagic was
++# the last remaining gate. This deliberately gives up the cross-model module
++# directory guard for the duration of the vendor-module path (plan A).
++CONFIG_LOCALVERSION="-lab126"
+diff --git a/docs/design/duet-wifi-device-data.en.md b/docs/design/duet-wifi-device-data.en.md
+new file mode 100644
+index 0000000..df4ebd1
+--- /dev/null
++++ b/docs/design/duet-wifi-device-data.en.md
+@@ -0,0 +1,95 @@
++# Oasis 1 ("duet") Wi-Fi: what the device actually has
++
++> Measured 2026-11-14 on a Kindle Oasis 1 running stock 5.16.2.1.1.
++> This note separates **measured** facts from **still unverified** ones; an
++> inference is never written as a conclusion. It belongs to route A in section 7
++> of the porting design and to rule 2 of CONTRIBUTING.md: device-private data is
++> read from the user's own device at start time, never stored here or shipped.
++
++## Measured
++
++### Four files in the stock system
++
++Found by mounting that device's stock p1 partition image read-only and cross-
++checking against the on-device survey report. These paths and sizes describe the
++model, not the individual unit; no contents, hashes, NVRAM MAC or serial are in
++the repository.
++
++| Role | Stock path | Bytes | Path in the start's cpio |
++|---|---|---:|---|
++| NVRAM calibration | `/opt/brcm_4343w/wifi/nvram/nvram.txt` | 906 | `firmware/image/brcm_4343w/nvram.txt` |
++| Runtime firmware | `/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin` | 357387 | `firmware/image/brcm_4343w/fw_bcmdhd_sr.bin` |
++| FullMAC driver | `/lib/modules/3.0.35-lab126/extra/dhd.ko` | 603828 | `firmware/image/brcm_4343w/modules/dhd.ko` |
++| Helper module | `/lib/modules/3.0.35-lab126/extra/falcon.ko` | 34392 | `firmware/image/brcm_4343w/modules/falcon.ko` |
++
++The same tree also holds an MFG firmware (374673 bytes) and Bluetooth `.hcd`
++files; a start does not need them and does not read them. `dhd.ko`'s `.modinfo`
++exposes `firmware_path` and `nvram_path`, defaulting to the two stock paths
++above; `modules.alias` has the `sdio:c00v*d* dhd` catch-all for this chip.
++
++### Stock kernel identity (for `dd_device_matches`)
++
++```
++/proc/cmdline : no_console_suspend rootwait log_pos_goal=0x8fff0000 console=ttymxc0,115200 root=/dev/mmcblk0p1 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M
++/proc/version : Linux version 3.0.35-lab126 (builder@eink-builds) (gcc version 4.9.1 (GCC) ) #6 PREEMPT Tue Aug 1 12:57:50 UTC 2023
++user FAT      : /mnt/base-us
++```
++
++Only two things differ from PW3: the boot loader adds `no_console_suspend`, and
++the stock kernel is build `#6 ... 12:57:50` (PW3's is `#8 ... 12:49:59`).
++`/proc/cpuinfo` still names `Freescale i.MX 6SoloLite based Wario Board`:
++duet shares `board-mx6sl_wario.c` with wario and branches at runtime through
++`lab126_board_is()`. That last point comes from the source and from the duet
++`vmlinux` built here, **not** from reading the device's `/proc/cpuinfo`, so it
++is recorded as source-level evidence.
++
++### The two static gates of route A
++
++- A kernel built from this project's duet config exports **185/185** of the
++  factory `dhd.ko`'s undefined symbols (the PW3 comparison is 184/185; the
++  missing `in_falcon` comes from duet's built-in board code).
++- After rebuilding with `CONFIG_LOCALVERSION="-lab126"`, module vermagic is
++  **byte-identical** to the factory `3.0.35-lab126 preempt mod_unload ARMv7 p2v8 `
++  (including the trailing space).
++- On the device, `insmod` of three modules built here (`crc-ccitt`, `nls_ascii`,
++  `nls_utf8`) succeeded **3/3**, `rmmod` 3/3, with no `version magic` or
++  `Unknown symbol` in `dmesg`. This is the **reverse** experiment: it shows the
++  cross toolchain's output is acceptable to the stock kernel, not that the
++  factory modules run under the new kernel.
++
++## Still unverified (do not present these as conclusions)
++
++1. **Runtime ABI**: the factory modules were built for the stock kernel, and
++   this one carries Android patches. Matching vermagic and symbols does not
++   guarantee matching structure layouts or function semantics. Needs `insmod`
++   and `dmesg` on a device.
++2. **Load branch**: the launcher's vendor-module branch was removed unused
++   before v0.1.0 (2026-10-29) and is not restored here. This patch only reads
++   the four files into the cpio; it adds no loading logic.
++3. **Module parameters**: `firmware_path` / `nvram_path` must point at the
++   expanded cpio paths; those are not yet settled.
++4. **Patches 0310 / 1045**: both describe ath6kl facts (firmware policy and
++   waiting for SDIO card detection) and need rewriting for BCM4343W.
++5. **Handover page table**: on 2G/2G the private table must copy the live one
++   and keep the module area (section 6); neither is implemented or verified.
++6. **Wi-Fi itself**: associating, scanning and resume behaviour are untested.
++
++Following the project's rule against writing a path no machine has run, this
++series lands only the **measured** part: reading and archiving the device data,
++plus the per-model parameterisation that makes it testable. The other six items
++are left for whoever has a target device.
++
++## What changed
++
++- `boot/devicedata/devicedata.h`: the two hard-coded Wi-Fi paths in `dd_profile`
++  become a per-model plan (calibration size, cpio paths, directory list,
++  factory-module list read at start time, waveform path).
++- `boot/devicedata/devicedata.c`: PW3 behaviour is unchanged; `dd_duet_5_16_2_1_1`
++  is added. `dd_archive` now builds directories and writes firmware, NVRAM and
++  each factory module from the plan. The calibration size check uses the
++  profile's measured value (906 for duet) and names both values on failure.
++- `boot/devicedata/tests/devicedata_test.c`: verifies duet identity and six cpio
++  entries on a made-up device, with two reverse checks (PW3's build number must
++  be refused; a 905-byte calibration must be refused).
++- No device-private data enters the repository: paths and sizes only, no
++  contents, hashes, MAC, serial or board ID.
+diff --git a/docs/design/duet-wifi-device-data.md b/docs/design/duet-wifi-device-data.md
+new file mode 100644
+index 0000000..b58e7df
+--- /dev/null
++++ b/docs/design/duet-wifi-device-data.md
+@@ -0,0 +1,73 @@
++# Oasis 1（duet）Wi‑Fi 设备侧取证
++
++> 2026-11-14，在一台 Kindle Oasis 1（固件 5.16.2.1.1）上实测。
++> 本文只记录**实测**与**仍待验证**两类事实；推断不写成结论。
++> 对应上游第七节的路线 A，以及 `CONTRIBUTING.md` 第 2 条：设备专属数据只在启动时
++> 从使用者自己的设备读取，不进仓库、不进发行物。
++
++## 已实测
++
++### 原厂系统的四个文件
++
++来源：把该机原厂 p1 分区镜像以只读 loop 挂载后 `find`，并用设备端报告交叉核对。
++路径与大小是**型号特征**，不是设备秘密；内容、哈希、NVRAM 里的 MAC 一律不写进仓库。
++
++| 作用 | 原厂路径 | 字节 | 启动时放进 cpio 的位置 |
++|---|---|---:|---|
++| NVRAM 校准 | `/opt/brcm_4343w/wifi/nvram/nvram.txt` | 906 | `firmware/image/brcm_4343w/nvram.txt` |
++| 正常固件 | `/opt/brcm_4343w/wifi/firmware/fw_bcmdhd_sr.bin` | 357387 | `firmware/image/brcm_4343w/fw_bcmdhd_sr.bin` |
++| FullMAC 驱动 | `/lib/modules/3.0.35-lab126/extra/dhd.ko` | 603828 | `firmware/image/brcm_4343w/modules/dhd.ko` |
++| 辅助模块 | `/lib/modules/3.0.35-lab126/extra/falcon.ko` | 34392 | `firmware/image/brcm_4343w/modules/falcon.ko` |
++
++同目录另有产测固件 `fw_bcmdhd_mfg.bin`（374673 字节）与一组蓝牙 `.hcd`；启动不需要，不读取。
++`dhd.ko` 的 `.modinfo` 里有 `firmware_path` / `nvram_path` 参数，默认指向上面两个原厂路径；
++`modules.alias` 里 `sdio:c00v*d* dhd` 兜底可匹配这颗芯片。
++
++### 原厂内核身份（供 `dd_device_matches`）
++
++```
++/proc/cmdline : no_console_suspend rootwait log_pos_goal=0x8fff0000 console=ttymxc0,115200 root=/dev/mmcblk0p1 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M
++/proc/version : Linux version 3.0.35-lab126 (builder@eink-builds) (gcc version 4.9.1 (GCC) ) #6 PREEMPT Tue Aug 1 12:57:50 UTC 2023
++用户分区挂载 : /mnt/base-us
++```
++
++与 PW3 的差别只有两处：引导命令行多一个 `no_console_suspend`，原厂内核构建号是 `#6 ... 12:57:50`
++（PW3 是 `#8 ... 12:49:59`）。`/proc/cpuinfo` 的 Hardware 仍是
++`Freescale i.MX 6SoloLite based Wario Board`——duet 与 wario 共用
++`board-mx6sl_wario.c`，靠 `lab126_board_is()` 运行时分流。这一条来自源码与本机编译出的
++duet `vmlinux` 字符串，**不是**设备上直接读 `/proc/cpuinfo`，故标为源码级证据。
++
++### 路线 A 的两道静态门禁
++
++- 用本项目的 duet 配置编出的内核，`Module.symvers` 覆盖原厂 `dhd.ko` 的
++  **185/185** 个未定义符号（PW3 对照是 184/185，缺 `in_falcon`；它由 duet 板级内建代码导出）。
++- 把 `CONFIG_LOCALVERSION` 设为 `-lab126` 重编后，模块 vermagic 与原厂
++  `3.0.35-lab126 preempt mod_unload ARMv7 p2v8 ` **逐字一致**（含末尾空格）。
++- 真机上 `insmod` 三个本项目编出的模块（`crc-ccitt`、`nls_ascii`、`nls_utf8`）**3/3 成功**、
++  `rmmod` 3/3 复原，`dmesg` 无 `version magic` / `Unknown symbol`。这是**反向**实证：
++  证明交叉工具链的产物能被原厂内核接受，不等于证明原厂模块能在新内核里跑起来。
++
++## 仍未验证（不要在补丁里冒充结论）
++
++1. **运行时 ABI**：原厂模块编给原厂内核，本项目给它加了 Android 补丁；vermagic 与符号相同
++   不保证结构体布局、导出函数语义一致。要上机 `insmod` 看 `dmesg` 与扫描行为。
++2. **加载分支**：启动程序里加载厂商模块的分支在 v0.1.0 之前删除（2026-10-29），尚未补回；
++   本补丁只把四个文件在启动时读进 cpio，没有写加载逻辑。
++3. **启动参数**：`firmware_path` / `nvram_path` 要指到 cpio 展开后的新路径，尚未定。
++4. **补丁 0310 / 1045**：写的是 ath6kl 与等 SDIO 卡侦测的事实，需按 BCM4343W 重写。
++5. **交接页表**：2G/2G 下私有页表要照抄活页表、保留模块区（上游第六节），尚未实现与验证。
++6. **实际 Wi‑Fi**：能否关联、扫描、唤醒后恢复，全部未测。
++
++按上游「不预先写一条没有机器能跑的路径」的规矩，本补丁集只落**已实测的那部分**：
++设备数据的读取与归档，以及让这部分可测的机型参数化。其余六项留给有目标机器的人继续。
++
++## 这组改动做了什么
++
++- `boot/devicedata/devicedata.h`：把 `dd_profile` 里的两条 Wi‑Fi 硬编码路径扩成一张按机型的计划
++  （校准大小、cpio 路径、目录表、要现场读取的原厂模块表、波形路径）。
++- `boot/devicedata/devicedata.c`：PW3 行为逐字不变；新增 `dd_duet_5_16_2_1_1`。
++  `dd_archive` 现在按计划建目录、写固件/NVRAM、逐项读取原厂模块；校准大小检查由 2048
++  改成 profile 里的实测值（duet 906），失败时把实际与期望都写进 `why`。
++- `boot/devicedata/tests/devicedata_test.c`：在假设备上验证 duet 身份与 6 个 cpio 条目，
++  并做两处反向验证（PW3 的构建号必须被拒；905 字节的校准必须被拒）。
++- 设备专属数据一处都没进仓库：只有路径和大小，没有内容、哈希、MAC、序列号或板 ID。
+diff --git a/docs/design/porting-to-other-models.en.md b/docs/design/porting-to-other-models.en.md
+index 50a62bd..fb33208 100644
+--- a/docs/design/porting-to-other-models.en.md
++++ b/docs/design/porting-to-other-models.en.md
+@@ -384,3 +384,21 @@ holds depends on the stock module loading into this project's kernel, which has
+ 
+ What `config/models/duet.config` records is this conclusion, not a string of "enable brcmfmac" options --
+ the configuration could be written, but it would enable a driver that does not build, and that is hiding the problem inside the build.
++
++
++### 2026-11-14 addendum: the four stock files are measured, half of route A lands
++
++Section 7 ended with "that needs a device, which is where this stops". An Oasis 1
++has now been measured: the paths and sizes of `nvram.txt` (906 bytes),
++`fw_bcmdhd_sr.bin`, `dhd.ko` and `falcon.ko` in the stock p1 partition, plus the
++device's `/proc/cmdline` and `/proc/version`, are in
++`design/duet-wifi-device-data.en.md`.
++
++`boot/devicedata/` therefore turns the Wi-Fi archive from two hard-coded PW3
++paths into a per-model plan and adds `dd_duet_5_16_2_1_1`: every start reads
++those four files from the stock system into its cpio, which is what the rule on
++device-private data requires. A C test covers duet identity and six cpio entries
++and reverses the 906-byte calibration check. **This is only the "get the files"
++half**: the load branch, module parameters, rewriting 0310/1045, the 2G/2G
++private page table and the runtime ABI of the factory modules still need a
++device -- see the six "still unverified" items in that note.
+diff --git a/docs/design/porting-to-other-models.md b/docs/design/porting-to-other-models.md
+index 7f06af9..d13d051 100644
+--- a/docs/design/porting-to-other-models.md
++++ b/docs/design/porting-to-other-models.md
+@@ -384,3 +384,16 @@ staging 那份编不过这棵内核：`wl_iw.c` 用了 `dhd_wait_pend8021x`，
+ 
+ 机型片段 `config/models/duet.config` 里写的是这个结论，而不是一串「打开 brcmfmac」的配置——
+ 配置能写出来，但它会打开一个编不出来的驱动，那是把问题藏进构建里。
++
++
++### 2026-11-14 补记：设备侧的四份文件已量到，路线 A 的一半落地
++
++第七节结尾写的是「需要目标机器，这在哪儿停下」。现在有一台 Oasis 1 量过了：原厂 p1 分区里
++`nvram.txt`（906 字节）、`fw_bcmdhd_sr.bin`、`dhd.ko`、`falcon.ko` 的路径与大小，以及
++`/proc/cmdline`、`/proc/version` 的实测值，见 `design/duet-wifi-device-data.md`。
++
++`boot/devicedata/` 因此把 Wi‑Fi 归档从 PW3 的两条硬编码路径改成按机型的计划，并新增
++`dd_duet_5_16_2_1_1`：每次启动从原厂系统现场读这四个文件进 cpio，符合设备专属数据不进仓库
++的规矩。C 测试覆盖 duet 身份与六个 cpio 条目，并对 906 字节的校准大小做了反向验证。
++**这只完成了「把文件取到」的一半**：加载分支、模块参数、0310/1045 补丁重写、2G/2G 私有页表、
++以及原厂模块在新内核里的运行时 ABI，仍然要在真机上做，见那篇文档的「仍未验证」六项。
+-- 
+2.34.1
+

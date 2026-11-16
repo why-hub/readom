@@ -1,0 +1,73 @@
+From 82230b9469e25faf81cdf100838f89f2e9fbfff8 Mon Sep 17 00:00:00 2001
+From: KO1 port <ko1@localhost>
+Date: Sat, 14 Nov 2026 23:10:52 +0800
+Subject: [PATCH] handoff: let a profile pin the utsname fingerprint it accepts
+
+The first attempt on a Kindle Oasis passed 27 checks and was then refused at
+check=display_identity, which is helper.c comparing /usr/sbin/eips against a
+hash compiled in for PW3. Behind that one sat the same problem in the module
+that actually performs the jump: stage.c compares utsname against three PW3
+literals, and this device reports #6 ... 12:57:50 where PW3 reports #8 ...
+12:49:59. A port would therefore pass every helper check and still be refused
+after the module had already been loaded.
+
+Fix it the way 0004 fixed the page-table policy: a profile that carries a
+kernel_identity block gets TARGET_KERNEL_RELEASE, TARGET_KERNEL_VERSION and
+TARGET_KERNEL_MACHINE in its generated target-lock.h, and stage.c uses them
+behind an #ifdef. A profile without the block keeps the PW3 literals, so a PW3
+build produces a byte-identical target-lock.h and an unchanged module.
+
+Verified without compiling: target_lock() from the unpatched tree and from the
+patched one produce identical output (2063 bytes) for the PW3 profile, and for
+the duet profile differ by exactly the three new defines.
+---
+ boot/build_module.py |  8 ++++++++
+ boot/handoff/stage.c | 10 ++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/boot/build_module.py b/boot/build_module.py
+index 81c86cd..7406876 100644
+--- a/boot/build_module.py
++++ b/boot/build_module.py
+@@ -55,6 +55,14 @@ def target_lock(profile, kernel, public, cmdline, footprint):
+     # PW3's generated target-lock.h stays byte for byte the same.
+     if p.get('pgd_policy'):
+         out.append('#define TARGET_PGD_POLICY %du' % int(p['pgd_policy']))
++    # Same rule for the utsname fingerprint: only a profile that pins its own
++    # gets the macros, so PW3's generated header keeps its literals in stage.c
++    # and stays byte for byte the same.
++    pin = p.get('kernel_identity')
++    if pin:
++        out.append('#define TARGET_KERNEL_RELEASE %s' % c_string(pin['release']))
++        out.append('#define TARGET_KERNEL_VERSION %s' % c_string(pin['version']))
++        out.append('#define TARGET_KERNEL_MACHINE %s' % c_string(pin['machine']))
+     lock = '\n'.join(out) + '\n'
+     lock += ranges('target_ram', p['ram']) + ranges('target_forbidden', p['forbidden'])
+     lock += ranges('target_footprint', [[hex(footprint['start']), hex(footprint['bytes'])]])
+diff --git a/boot/handoff/stage.c b/boot/handoff/stage.c
+index 3e2ac3b..41b2e15 100644
+--- a/boot/handoff/stage.c
++++ b/boot/handoff/stage.c
+@@ -557,9 +557,19 @@ static int __init stage_init(void)
+ #endif
+     if(!PWS_PROFILE)return -EOPNOTSUPP;
+ #if PWS_PROFILE == 1
++    /* A port pins its own firmware here. Without this, a device whose helper
++     * passed every check is still refused by the module, and the refusal
++     * happens after the helper has told the reader it is on its way. Profiles
++     * that pin nothing keep the PW3 literals, so PW3's build is unchanged. */
++#ifdef TARGET_KERNEL_VERSION
++    if(strcmp(u->release,TARGET_KERNEL_RELEASE) ||
++       strcmp(u->version,TARGET_KERNEL_VERSION) ||
++       strcmp(u->machine,TARGET_KERNEL_MACHINE) || PHYS_OFFSET!=0x80000000)return -ENOEXEC;
++#else
+     if(strcmp(u->release,"3.0.35-lab126") ||
+        strcmp(u->version,"#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023") ||
+        strcmp(u->machine,"armv7l") || PHYS_OFFSET!=0x80000000)return -ENOEXEC;
++#endif
+ #elif PWS_PROFILE == 2
+     if(!strstr(u->release,"-pw3-core-smoke") || PHYS_OFFSET!=0x60000000)return -ENOEXEC;
+ #else
+-- 
+2.34.1
+

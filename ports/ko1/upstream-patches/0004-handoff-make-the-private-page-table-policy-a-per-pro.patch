@@ -1,0 +1,463 @@
+From 025fbe338f28df99c71831be220dbfbb1ba5801f Mon Sep 17 00:00:00 2001
+From: ko1 port <ko1@localhost>
+Date: Sat, 14 Nov 2026 21:16:31 +0800
+Subject: [PATCH] handoff: make the private page table policy a per-profile
+ fact
+
+stage.c cleared [0, identity_limit) unconditionally. That is right for a 3G/1G kernel where PAGE_OFFSET != PHYS_OFFSET and the module has to build its own 1:1 window, but on a 2G/2G kernel lowmem is already 1:1 and MODULES_VADDR sits inside the cleared range: the instruction after the TTBR0 write would have no mapping. The BUILD_BUG_ON beside IDENTITY_SECTIONS was meant to stop a port from widening the bound instead of fixing the table.
+
+Move the fill rule into one pure function shared by prepare(), audit_plan() and the native backend. COPY_LIVE copies all 4096 live sections; BUILD_WINDOW reproduces PW3 word for word. The live PGD physical address is kept in the store so both audit_plan() callers recompute from an owned page and a physical address, not from prepare() intermediates. build_module.py emits TARGET_PGD_POLICY only for a profile that asks, so PW3 target-lock.h and its 4096 entries stay byte-identical; a test compares both tables and reverse-pins the mistake. No duet profile is added: its stock function hashes still need a device.
+
+Verified on the host: full suite 55 passed/0 failed/19 skipped, reverse check 4/4, and pw3_first_kernel.ko really built against the PW3 tree (3G/1G, BUILD_WINDOW) and the duet tree (2G/2G, COPY_LIVE). Building BUILD_WINDOW into the 2G/2G tree is still rejected by the existing BUILD_BUG_ON, as designed. Not verified: any duet device or QEMU 2G kernel.
+---
+ boot/build_module.py                  |  4 ++
+ boot/handoff/native-handoff.h         |  6 ++-
+ boot/handoff/private-pgd.h            | 38 ++++++++++++++
+ boot/handoff/stage.c                  | 68 +++++++++++++++++--------
+ boot/handoff/tests/test-private-pgd.c | 66 ++++++++++++++++++++++++
+ docs/design/private-pgd-policy.en.md  | 73 +++++++++++++++++++++++++++
+ docs/design/private-pgd-policy.md     | 61 ++++++++++++++++++++++
+ tools/run-tests.py                    |  2 +
+ 8 files changed, 297 insertions(+), 21 deletions(-)
+ create mode 100644 boot/handoff/private-pgd.h
+ create mode 100644 boot/handoff/tests/test-private-pgd.c
+ create mode 100644 docs/design/private-pgd-policy.en.md
+ create mode 100644 docs/design/private-pgd-policy.md
+
+diff --git a/boot/build_module.py b/boot/build_module.py
+index 1ce35b7..81c86cd 100644
+--- a/boot/build_module.py
++++ b/boot/build_module.py
+@@ -51,6 +51,10 @@ def target_lock(profile, kernel, public, cmdline, footprint):
+            '#define TARGET_DEVICE_ARCHIVE_MAX %du' % p['device_archive_max'],
+            'static const char target_cmdline[]=%s;' % c_string(cmdline),
+            'static const u32 target_atag_kinds[]={%s};' % ','.join('%#xu' % int(k, 0) for k in p['atag_kinds'])]
++    # Only a profile that asks for another private-pgd policy gets the macro;
++    # PW3's generated target-lock.h stays byte for byte the same.
++    if p.get('pgd_policy'):
++        out.append('#define TARGET_PGD_POLICY %du' % int(p['pgd_policy']))
+     lock = '\n'.join(out) + '\n'
+     lock += ranges('target_ram', p['ram']) + ranges('target_forbidden', p['forbidden'])
+     lock += ranges('target_footprint', [[hex(footprint['start']), hex(footprint['bytes'])]])
+diff --git a/boot/handoff/native-handoff.h b/boot/handoff/native-handoff.h
+index 27ab616..551706e 100644
+--- a/boot/handoff/native-handoff.h
++++ b/boot/handoff/native-handoff.h
+@@ -165,7 +165,11 @@ static int native_core_suspend(void)
+     __asm__ volatile("mrc p15,0,%0,c2,c0,2":"=r"(ttbcr));
+     if(ttbcr || (ttbr&~16383u)<PHYS_OFFSET || (ttbr&~16383u)>PHYS_OFFSET+512u*1024u*1024u-16384u){rc=-EOPNOTSUPP;goto out;}
+     native_backend.original=phys_to_virt(ttbr&~16383u);pgd=(u32 *)native_backend.private;
+-    for(i=IDENTITY_SECTIONS;i<4096;i++)pgd[i]=native_backend.original[i];
++    for(i=0;i<4096;i++)
++        pgd[i]=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
++            native_backend.physical_control>>20,
++            native_backend.physical_control,PW3_IDENTITY_SECTION,
++            native_backend.original);
+     native_backend.expected_thread_info=(u32)task_thread_info(native_owner);
+     native_report.backend_check_performed=1;
+ #if PWS_PROFILE == 2
+diff --git a/boot/handoff/private-pgd.h b/boot/handoff/private-pgd.h
+new file mode 100644
+index 0000000..29a5e97
+--- /dev/null
++++ b/boot/handoff/private-pgd.h
+@@ -0,0 +1,38 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef PWS_PRIVATE_PGD_H
++#define PWS_PRIVATE_PGD_H
++#include "pw3_plan.h"
++
++/* The 4096 ARM section entries of the private TTBR0 table are filled one of
++ * two ways. This is a fact about the kernel's memory split, not about the
++ * payload, so it belongs to the profile that names the machine.
++ *
++ * BUILD_WINDOW: PAGE_OFFSET != PHYS_OFFSET. The live lowmem mapping is not
++ *   1:1, so clear [0, identity_limit), write the one control section as an
++ *   identity mapping, and copy the kernel/module mappings above the limit.
++ * COPY_LIVE: PAGE_OFFSET == PHYS_OFFSET. Live lowmem is already 1:1 and the
++ *   module area is below identity_limit (MODULES_VADDR = PAGE_OFFSET-16 MiB).
++ *   Copy every word from the live table. Clearing anything would unmap the
++ *   instruction that follows the TTBR0 write.
++ *
++ * docs/design/porting-to-other-models.md section 6 explains why a 2G/2G
++ * machine takes the second policy; docs/design/private-pgd-policy.md records
++ * what has and has not been run. */
++#define PWS_PGD_BUILD_WINDOW 1
++#define PWS_PGD_COPY_LIVE 2
++
++/* Pure. 'live' is the running kernel's PGD; index is a 1 MiB section number.
++ * identity_sections is identity_limit >> 20 and control_section is the section
++ * holding the control page. Under COPY_LIVE the last three arguments describe
++ * a mapping we do not need to make, and are deliberately ignored. */
++static inline pw_u32 pws_private_pgd_word(pw_u32 policy, pw_u32 index,
++        pw_u32 identity_sections, pw_u32 control_section,
++        pw_u32 control_phys, pw_u32 identity_attrs, const pw_u32 *live)
++{
++    if (policy == PWS_PGD_COPY_LIVE || index >= identity_sections)
++        return live[index];
++    if (index == control_section)
++        return (control_phys & 0xfff00000u) | identity_attrs;
++    return 0;
++}
++#endif
+diff --git a/boot/handoff/stage.c b/boot/handoff/stage.c
+index 3c893d1..3e2ac3b 100644
+--- a/boot/handoff/stage.c
++++ b/boot/handoff/stage.c
+@@ -26,6 +26,7 @@
+ #include "identity-attrs.h"
+ #include "allocation-ranges.h"
+ #include "target-lock.h"
++#include "private-pgd.h"
+ 
+ #ifndef PWS_PROFILE
+ #define PWS_PROFILE 0
+@@ -72,6 +73,16 @@
+  * port to a machine with another split gets a table that does not match the
+  * plan it was checked against, with nothing to say so. */
+ #define IDENTITY_SECTIONS (TARGET_IDENTITY_LIMIT>>20)
++/* Which of the two layouts this build is for. A profile that says nothing is
++ * the window-building one (PW3); build_module.py only emits TARGET_PGD_POLICY
++ * for a profile that explicitly asks for another. */
++#ifndef TARGET_PGD_POLICY
++#define TARGET_PGD_POLICY PWS_PGD_BUILD_WINDOW
++#endif
++#define PWS_PGD_POLICY TARGET_PGD_POLICY
++#if PWS_PGD_POLICY != PWS_PGD_BUILD_WINDOW && PWS_PGD_POLICY != PWS_PGD_COPY_LIVE
++#error "TARGET_PGD_POLICY is not one of the two private-pgd policies"
++#endif
+ struct allocation { struct page *page; unsigned int order; };
+ struct slot { unsigned int bytes, written, first, pages; u8 expected[32]; };
+ struct store {
+@@ -82,6 +93,7 @@ struct store {
+     struct slot slot[PWS_SLOTS];
+     unsigned int native_ready;
+     unsigned int device_checked;   /* seal(): device ATAGs and archive keep the build's rules */
++    u32 live_pgd_phys;             /* prepare(): the live PGD the private table was copied from */
+ };
+ static atomic_t opened=ATOMIC_INIT(0);
+ static unsigned long live_pages;
+@@ -355,14 +367,22 @@ static int audit_plan(struct store *s)
+ {
+     unsigned int i,j,page=0,word=0,entries=0,total=0;
+     const u32 *table=page_address(s->allocations[s->control_first+2].page);
++    const u32 *live;
++    if(!s->live_pgd_phys || (s->live_pgd_phys&16383u))return -EUCLEAN;
++    live=phys_to_virt(s->live_pgd_phys);
+     /* Recheck every actual source, control, page-table and list allocation
+      * against all regions that the copy/decompressor path may overwrite. */
+     for(i=0;i<s->count;i++)
+         if(!pws_allocation_allowed(PHYS_OFFSET,TARGET_FOOTPRINT_END,
+             s->slot[0].bytes,s->slot[2].bytes,owned_phys(s,i),
+             PAGE_SIZE<<s->allocations[i].order))return -EUCLEAN;
+-    for(i=0;i<IDENTITY_SECTIONS;++i) {
+-        u32 expected=i==(owned_phys(s,s->control_first)>>20)?(i<<20|PW3_IDENTITY_SECTION):0;
++    /* Recompute all 4096 sections from the live table and the plan. This
++     * consumer reads the owned page and the live PGD again; it does not trust
++     * any intermediate that prepare() produced. */
++    for(i=0;i<4096;++i) {
++        u32 expected=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
++            owned_phys(s,s->control_first)>>20,
++            owned_phys(s,s->control_first),PW3_IDENTITY_SECTION,live);
+         if(table[i]!=expected)return -EUCLEAN;
+     }
+     for(i=0;i<PWS_SLOTS+1;++i) {
+@@ -413,16 +433,20 @@ static int prepare(struct store *s)
+        !pfn_valid(pa>>PAGE_SHIFT) || !pfn_valid((pa+16383)>>PAGE_SHIFT)) {
+         preempt_enable();rc=-EOPNOTSUPP;goto fail;
+     }
++    s->live_pgd_phys=pa;
+     current_pgd=phys_to_virt(pa);
+-    for(i=0;i<IDENTITY_SECTIONS;++i)pgd[i]=0;
+-    pgd[owned_phys(s,s->control_first)>>20]=(owned_phys(s,s->control_first)&0xfff00000u)|PW3_IDENTITY_SECTION;
+-    for(;i<4096;++i)pgd[i]=current_pgd[i];
++    for(i=0;i<4096;++i)
++        pgd[i]=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
++            owned_phys(s,s->control_first)>>20,
++            owned_phys(s,s->control_first),PW3_IDENTITY_SECTION,current_pgd);
+ #if PWS_PROFILE == 2
+     if(plan_fault==4)pgd[0xc00]^=1;
+     if(plan_fault==5)pgd[0x600]^=4;
+ #endif
+-    for(i=IDENTITY_SECTIONS;i<4096;++i)
+-        if(pgd[i]!=current_pgd[i])break;
++    for(i=0;i<4096;++i)
++        if(pgd[i]!=pws_private_pgd_word(PWS_PGD_POLICY,i,IDENTITY_SECTIONS,
++            owned_phys(s,s->control_first)>>20,
++            owned_phys(s,s->control_first),PW3_IDENTITY_SECTION,current_pgd))break;
+     preempt_enable();
+     if(i!=4096){rc=-EUCLEAN;goto fail;}
+ #if PWS_PROFILE == 2
+@@ -512,21 +536,25 @@ static int __init stage_init(void)
+      * it and a plan checked against a limit the table does not keep. */
+     BUILD_BUG_ON(TARGET_IDENTITY_LIMIT&0xfffffu);
+     BUILD_BUG_ON(IDENTITY_SECTIONS>=4096u || !IDENTITY_SECTIONS);
+-    /* Everything below the bound is cleared out of the private table, and
+-     * between the TTBR0 write and the branch into the control page the code
+-     * still running is this module's own (cache-ops.S tail, transition.S
+-     * pw3_enter_private_mapping). So the module area has to be at or above the
+-     * bound, or the table unmaps the instruction that installs it.
++    /* Under the window-building policy everything below the bound is cleared
++     * out of the private table, and between the TTBR0 write and the branch
++     * into the control page the code still running is this module's own
++     * (cache-ops.S tail, transition.S pw3_enter_private_mapping). So on that
++     * layout the module area has to be at or above the bound, or the table
++     * unmaps the instruction that installs it. MODULES_VADDR is PAGE_OFFSET -
++     * 16 MiB and this kernel is 3G/1G, so both are 0xbf000000.
+      *
+-     * It holds here by equality, not by luck of the draw: MODULES_VADDR is
+-     * PAGE_OFFSET - 16 MiB and this kernel is 3G/1G, so both are 0xbf000000.
+-     * A 2G/2G Kindle (imx60_duet_defconfig sets CONFIG_VMSPLIT_2G) puts the
+-     * module area at 0x7f000000 while its bound has to clear the top of RAM,
+-     * and there the two part company. That port needs the private table to
+-     * keep a second region, not a wider profile number -- and it should find
+-     * that out from this line rather than from a device that stops booting.
+-     * docs/design/porting-to-other-models.md section 6 says what it costs. */
++     * A 2G/2G Kindle puts the module area at 0x7f000000 while its bound has
++     * to clear the top of RAM. Clearing is wrong there for a second reason:
++     * PAGE_OFFSET == PHYS_OFFSET, so live lowmem is already 1:1 and the
++     * private table must copy all 4096 words (PWS_PGD_COPY_LIVE) instead.
++     * Keeping the policy here, with a host-side test in boot/handoff/tests,
++     * is what lets that port change the table rather than widen a number in a
++     * profile. docs/design/porting-to-other-models.md section 6, and
++     * docs/design/private-pgd-policy.md. */
++#if PWS_PGD_POLICY == PWS_PGD_BUILD_WINDOW
+     BUILD_BUG_ON(TARGET_IDENTITY_LIMIT>(unsigned int)MODULES_VADDR);
++#endif
+     if(!PWS_PROFILE)return -EOPNOTSUPP;
+ #if PWS_PROFILE == 1
+     if(strcmp(u->release,"3.0.35-lab126") ||
+diff --git a/boot/handoff/tests/test-private-pgd.c b/boot/handoff/tests/test-private-pgd.c
+new file mode 100644
+index 0000000..23728c3
+--- /dev/null
++++ b/boot/handoff/tests/test-private-pgd.c
+@@ -0,0 +1,66 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#include <stdio.h>
++#include "private-pgd.h"
++#include "identity-attrs.h"
++
++static unsigned checks;
++#define CHECK(x) do { ++checks; if(!(x)) { \
++    printf("PRIVATE_PGD_FAIL line=%u\n",__LINE__);return 1;} } while(0)
++
++#define SECTIONS 4096u
++static pw_u32 live[SECTIONS], table[SECTIONS];
++
++int main(void)
++{
++    pw_u32 i, window_limit = 0xbf0u, duet_limit = 0xa00u;
++    pw_u32 control_phys = 0x81000000u, control_section = control_phys >> 20;
++    const pw_u32 attrs = PW3_IDENTITY_SECTION;
++    for (i=0;i<SECTIONS;++i) live[i]=(i<<20)|0x40eu;
++
++    CHECK(PWS_PGD_BUILD_WINDOW==1 && PWS_PGD_COPY_LIVE==2);
++    /* The window-building layout, word for word what PW3 used to produce. */
++    for (i=0;i<SECTIONS;++i)
++        table[i]=pws_private_pgd_word(PWS_PGD_BUILD_WINDOW,i,window_limit,
++            control_section,control_phys,attrs,live);
++    for (i=0;i<SECTIONS;++i) {
++        pw_u32 expected = i < window_limit ? 0u : live[i];
++        if (i==control_section) expected=(control_phys&0xfff00000u)|attrs;
++        CHECK(table[i]==expected);
++    }
++    CHECK(table[0]==0 && table[0x7f0]==0);
++    CHECK(table[control_section]==((control_phys&0xfff00000u)|attrs));
++    CHECK(table[window_limit]==live[window_limit]);
++    CHECK(table[0xc00]==live[0xc00]);
++
++    /* The 2G/2G layout: nothing is cleared, including the module area and
++     * the control section, which the live lowmem map already covers 1:1. */
++    for (i=0;i<SECTIONS;++i)
++        table[i]=pws_private_pgd_word(PWS_PGD_COPY_LIVE,i,duet_limit,
++            control_section,control_phys,attrs,live);
++    for (i=0;i<SECTIONS;++i) CHECK(table[i]==live[i]);
++    CHECK(table[0x7f0]==live[0x7f0] && table[0x7f0]!=0);
++    CHECK(table[control_section]==live[control_section]);
++    CHECK(table[0x9f0]==live[0x9f0]);
++
++    /* The mistake this parameterisation exists to prevent. With a duet bound
++     * and the old unconditional clearing, the module area goes to zero and the
++     * next instruction fetch after the TTBR write has no mapping. The test
++     * pins that the old policy really does clear it, so a future refactor
++     * cannot quietly make both policies identical. */
++    CHECK(pws_private_pgd_word(PWS_PGD_BUILD_WINDOW,0x7f0,duet_limit,
++        control_section,control_phys,attrs,live)==0);
++    CHECK(pws_private_pgd_word(PWS_PGD_BUILD_WINDOW,0x9f0,duet_limit,
++        control_section,control_phys,attrs,live)==0);
++    /* An unknown policy must not turn into COPY_LIVE by accident. build_module
++     * rejects it at compile time; here it falls back to the window layout. */
++    CHECK(pws_private_pgd_word(99,0x7f0,duet_limit,
++        control_section,control_phys,attrs,live)==0);
++
++    /* The 2G/2G bound is the end of lowmem, not TASK_SIZE: it is above the
++     * physical RAM start, which is what pw3_plan.c's contract check asks. */
++    CHECK((duet_limit<<20)==0xa0000000u && 0xa0000000u>0x80000000u);
++    CHECK(window_limit<<20==0xbf000000u);
++
++    printf("PRIVATE_PGD_PASS checks=%u\n",checks);
++    return 0;
++}
+diff --git a/docs/design/private-pgd-policy.en.md b/docs/design/private-pgd-policy.en.md
+new file mode 100644
+index 0000000..1ed8d9c
+--- /dev/null
++++ b/docs/design/private-pgd-policy.en.md
+@@ -0,0 +1,73 @@
++# The private page table policy: why one constant cannot cover two layouts
++
++> 2026-11-14, stage A2. This records a **mechanism** change: the handoff
++> module's private TTBR0 table now picks its fill rule per model. "Verified"
++> below means checks run on this host; neither a device nor QEMU has run it.
++> The upstream reasoning is in section 6 of
++> `docs/design/porting-to-other-models.en.md`.
++
++## The contract
++
++`identity_limit` is "the upper bound of the 1:1 region in the table the handoff
++will run under", not `TASK_SIZE`. Both layouts still satisfy the
++`identity_limit > boot_ram_base` check in `pw3_plan.c`; that check rejects a
++plan that was written wrong, not a class of machine.
++
++## Two policies
++
++| Policy | When it applies | How the private table is filled |
++|---|---|---|
++| `PWS_PGD_BUILD_WINDOW` | `PAGE_OFFSET != PHYS_OFFSET` (3G/1G) | Clear `[0, identity_limit)`, write the control section, copy the live table above the limit word for word |
++| `PWS_PGD_COPY_LIVE` | `PAGE_OFFSET == PHYS_OFFSET` (2G/2G) | Copy all 4096 sections from the live table; clear none |
++
++The profile decides: `build_module.py` emits `TARGET_PGD_POLICY` into
++`target-lock.h` only when a profile explicitly sets `pgd_policy`. The PW3
++profile does not, so its `target-lock.h`, its 4096 table entries and every
++existing assertion stay **byte for byte unchanged**.
++
++One pure function, `pws_private_pgd_word()`, is shared by all three callers:
++`prepare()` in `stage.c` writes the table, `audit_plan()` recomputes every
++section independently, and `native-handoff.h` fills the native backend's
++table. The auditor never reads the writer's intermediate state.
++
++## Why duet cannot just change a number in its config
++
++Under 2G/2G, `PAGE_OFFSET` and `PHYS_OFFSET` are both `0x80000000`, so the
++kernel's lowmem mapping is already 1:1 and no separate window has to be built.
++But the module area sits at `0x7F000000`-`0x80000000`
++(`MODULES_VADDR = PAGE_OFFSET - 16 MiB`), inside the range the old code
++cleared unconditionally. Clear it and the instruction after the TTBR0 write
++has no mapping.
++
++The existing `BUILD_BUG_ON(TARGET_IDENTITY_LIMIT > MODULES_VADDR)` would reject
++duet's `0xA0000000` bound, and that was **deliberate**: it stops someone from
++widening the bound to get around the clearing. The assertion now applies only
++to `BUILD_WINDOW`; under `COPY_LIVE` the whole live table is kept, there is no
++"clear below the bound" step, and the assertion no longer applies.
++
++```c
++if (policy == PWS_PGD_COPY_LIVE || index >= identity_sections)
++    return live[index];
++```
++
++## Verified and not verified
++
++- Verified: the upstream full test suite passes; `test-private-pgd.c` compares
++  all 4096 entries under both policies and reverse-pins the fact that the old
++  policy with a duet bound clears the module area; breaking the policy branch
++  on purpose makes the test fail and restoring it makes it pass again.
++- Verified: the PW3 profile, its generated `target-lock.h` and its table
++  entries are unchanged.
++- Partly verified: `pw3_first_kernel.ko` was really built twice, against the
++  PW3 kernel tree (3G/1G, `BUILD_WINDOW`, 33,244 B) and against the duet kernel
++  tree (2G/2G, `COPY_LIVE`, 32,972 B). Building `BUILD_WINDOW` into the 2G/2G
++  tree is rejected by the existing `BUILD_BUG_ON`, as designed.
++  **Still unverified**: any duet device and the QEMU 2G test kernel; section 6
++  recommends running the "copy the live table" path on QEMU vexpress first.
++- Not verified: the duet profile itself. Its four `stock_functions` body hashes
++  have to be sampled from the target device's `/proc/kallsyms`; those data are
++  not on this host. Therefore **this patch creates no duet profile** and no
++  code claiming to boot that model.
++
++This follows `CONTRIBUTING.md`: a mechanism with tests may be contributed, but
++no path is written in advance for a machine nobody has run.
+diff --git a/docs/design/private-pgd-policy.md b/docs/design/private-pgd-policy.md
+new file mode 100644
+index 0000000..07a6cb5
+--- /dev/null
++++ b/docs/design/private-pgd-policy.md
+@@ -0,0 +1,61 @@
++# 私有页表策略：为什么一个常量不能覆盖两种内存布局
++
++> 2026-11-14，阶段 A2。本文记录一处**机制**改动：让交接模块的私有 TTBR0 表
++> 按机型选择填法。文中「已验证」只包括本机跑过的检查；真机与 QEMU 均未执行。
++> 上游依据见 `docs/design/porting-to-other-models.md` 第六节。
++
++## 契约
++
++`identity_limit` 是「交接将运行的那张表里，1:1 区域的上界」，不是 `TASK_SIZE`。
++两种布局都要满足 `pw3_plan.c` 里那条 `identity_limit > boot_ram_base` 检查；
++它拒绝的是写坏了的计划，不是某一类机器。
++
++## 两种策略
++
++| 策略 | 使用条件 | 私有表怎么填 |
++|---|---|---|
++| `PWS_PGD_BUILD_WINDOW` | `PAGE_OFFSET != PHYS_OFFSET`（3G/1G） | 清零 `[0, identity_limit)`，写入控制页那一节，其上逐字照抄活页表 |
++| `PWS_PGD_COPY_LIVE` | `PAGE_OFFSET == PHYS_OFFSET`（2G/2G） | 4096 节全部逐字照抄活页表，一节都不清 |
++
++选择权在 profile：`build_module.py` 只在 profile 显式写了 `pgd_policy` 时才往
++`target-lock.h` 生成 `TARGET_PGD_POLICY`。PW3 的 profile 没写这个字段，因此它的
++`target-lock.h`、生成的 4096 个表项、以及既有断言**逐字不变**。
++
++同一个纯函数 `pws_private_pgd_word()` 被三处共用：`stage.c` 的 `prepare()` 写表、
++`audit_plan()` 独立重算每一节、`native-handoff.h` 填原生后端的表。审计方不读取
++写表方的中间状态，仍是独立消费者。
++
++## 为什么 duet 不能只改配置文件里的数字
++
++2G/2G 下 `PAGE_OFFSET` 与 `PHYS_OFFSET` 同为 `0x80000000`，内核 lowmem 映射本身
++就是 1:1，交接要的窗口不需要另建；而模块区在 `0x7F000000`–`0x80000000`
++（`MODULES_VADDR = PAGE_OFFSET − 16 MiB`），正好落在旧代码无条件清零的范围里。
++清掉它，写完 TTBR0 之后的下一条指令就取不到。
++
++原来的 `BUILD_BUG_ON(TARGET_IDENTITY_LIMIT > MODULES_VADDR)` 会把 duet 的上界
++`0xA0000000` 挡住，这是**故意**的：它防的是「把界限写大来绕过清零」。现在这条
++断言只在 `BUILD_WINDOW` 策略下生效；`COPY_LIVE` 策略下保留整张活页表，不存在
++「界限以下要清零」这回事，断言也就不再适用。
++
++```c
++if (policy == PWS_PGD_COPY_LIVE || index >= identity_sections)
++    return live[index];
++```
++
++## 已验证与未验证
++
++- 已验证：上游全量测试套件通过；`test-private-pgd.c` 逐节比对两种策略的 4096 个表项，
++  并反向锁定「用旧策略套 duet 上界会清零模块区」这一事实；故意破坏策略分支后测试失败、
++  恢复后全绿。
++- 已验证：PW3 的 profile、生成的 `target-lock.h` 与表项字节不变。
++- 部分验证：`pw3_first_kernel.ko` 已用真实的 PW3 内核树（3G/1G，`BUILD_WINDOW`，
++  33,244 B）与 duet 内核树（2G/2G，`COPY_LIVE`，32,972 B）各自编译通过；把
++  `BUILD_WINDOW` 编进 2G/2G 内核会被原有 `BUILD_BUG_ON` 按设计拦下。
++  **仍未验证**：任何一台 duet 真机、QEMU 的 2G 测试内核；上游第六节建议先在
++  QEMU vexpress 上跑通「照抄活页表」这条路径。
++- 未验证：duet 的 profile 本身。它的 `stock_functions` 四个函数体哈希必须从目标设备的
++  `/proc/kallsyms` 现场取样，本机没有这些数据，因此**本补丁不创建 duet profile**，
++  也不写任何声称能在该机型启动的代码。
++
++这符合 `CONTRIBUTING.md` 的规矩：可以提交有测试支撑的机制，不预先写一条没有机器
++能跑的路径。
+diff --git a/tools/run-tests.py b/tools/run-tests.py
+index e78575e..da03d8b 100644
+--- a/tools/run-tests.py
++++ b/tools/run-tests.py
+@@ -153,6 +153,8 @@ TESTS = [
+     ('adbd-functions', 'python', ['tools/kernel-hardware/tests/test_adbd.py'], False),
+     ('allocation-ranges', 'c', ['-Iboot/handoff', 'boot/handoff/tests/test-allocation-ranges.c',
+                                 'boot/handoff/pw3_plan.c'], False),
++    ('private-pgd', 'c', ['-Iboot/handoff', 'boot/handoff/tests/test-private-pgd.c',
++                          'boot/handoff/pw3_plan.c'], False),
+     ('device-data', 'c', ['boot/devicedata/tests/devicedata_test.c',
+                           'boot/devicedata/devicedata.c', 'boot/handoff/pw3_plan.c'], False),
+     ('user-log', 'c', ['boot/launcher/tests/userlog_test.c', 'boot/launcher/userlog.c'], False),
+-- 
+2.34.1
+
