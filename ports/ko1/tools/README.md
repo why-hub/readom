@@ -5,6 +5,8 @@
 
 - 大部分接受 `--source` / `--out`，或者直接对 Kindle 用户分区上的镜像文件操作；
 - 凡是改 `system.img` 的，都只改字节、不重打包，改完必须重 pin preinit 里的哈希；
+- 凡是改 `build.prop` 的，一律**等长替换**（文件定长 4719 字节），且属性只能落在正文区——
+  尾部那段 NUL 填充会在 preinit 挂载时被丢掉，写在那里等于没写，见 [08](../docs/08-buildprop-editing.md)；
 - 凡是改内核的，都是对内核源码树的定点替换，改完要重编 `zImage`。
 
 ## 内核侧（重编内核才生效）
@@ -15,6 +17,8 @@
 | `patch-allow-foreign-vendor-modules.py` | 放开 vermagic 校验，让原厂 `dhd.ko` / `falcon.ko` 能加载 |
 | `patch-printk-mirror-clamp.py` | 把 printk 的物理内存镜像限在 32 KiB 窗口内（否则 `0xA0000000` 越界，启动即复位） |
 | `patch-ko1-gpiokey-v24.py` | 板级把 `SD1_DAT0` / `SD1_CMD` 复用为 GPIO，注册 `gpio-keys`；含 `PKE_ENABLED` 修正与极性自检 |
+| `patch-ko1-wdt-suspend.py` | 给 `imx2_wdt` 补 suspend/resume：睡眠前双写清 `WCR.WDE`、醒来最先重开。不补的话看门狗 60 s 后会复位 SoC |
+| `patch-ko1-no-suspend.py` | **对照实验，不是修复**：在 `enter_state()` 开头直接返回 `-EINVAL`，让系统永不入睡。用来判定复发重启是否与 suspend 无关 |
 
 ## `system.img` 侧（字节级改写）
 
@@ -27,6 +31,9 @@
 | `patch-charger-single-mains.py` | 只让真正的插线检测节点报 `Mains`，附变化时才打印的诊断 |
 | `patch-buildprop-heapsize.py` | `dalvik.vm.heapsize` 256m → 192m |
 | `patch-buildprop-model.py` | 型号名两条属性改 `Kindle Oasis 1`，用相邻注释抵消长度 |
+| `patch-buildprop-epdc-v29.py` | EPDC 调优：`debug.pw3.epdc.fast=1` + `full_every=20`（`fast` 后来证伪，不是 A2 开关） |
+| `patch-buildprop-epdc-v30.py` | 在 v29 基础上再注入 `a2=1` + `settle_ms=150`，掏空间用的是两条构建脚本样板注释 |
+| `patch-buildprop-epdc-v28.py` | **反例，保留作对照**：把属性写进尾部 NUL 填充区，被 preinit 丢掉。看 [08](../docs/08-buildprop-editing.md) 为什么 |
 
 ## 诊断（不修东西，只留证据）
 

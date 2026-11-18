@@ -35,14 +35,14 @@
 |---|---|---|
 | 进 Android 8.1 桌面 | 可用 | 多次启动，`init` 走到 `sys.boot_completed=1` |
 | 从 Android 回原厂系统 | 可用 | 长按电源重启即回；不写分区，无刷机 |
-| 显示 | 能用，刷新慢 | 面板点亮、灰度正常；拖动的延迟来自 EPDC 刷屏，见 [06](docs/06-touch-display.md) |
+| 显示 | 能用，刷新慢 | 面板点亮、灰度正常；`292 ms/帧`、`a2=0`、`gl16` 占七成，见 [06](docs/06-touch-display.md) |
 | 触摸 | 精确，跟随延迟 | 120 条事件按帧还原：16 ms 中位间隔、无丢帧、坐标全屏准确 |
 | Wi-Fi | 可用 | `dhd` 起来、`wlan0` 有真实 MAC、能扫描关联，见 [01](docs/01-wifi.md) |
 | 充电指示 | 可用 | 插拔线时图标随状态变化，见 [02](docs/02-charging.md) |
 | 微信读书 | 可用 | 连续存活 11 分钟以上，能进书架与阅读页，见 [03](docs/03-weread-heapsize.md) |
 | 两侧翻页键 | 可用 | 上/下键各验 4 次，`KEY_PAGEUP` / `KEY_PAGEDOWN` 完整按下+松开，见 [04](docs/04-page-keys.md) |
 | 设备型号 | 可用 | 「设置 → 设备信息」显示 `Kindle Oasis 1`，见 [05](docs/05-model-name.md) |
-| 深度睡眠 / 唤醒 | 未验证 | 会上报，但没有完整走一轮 |
+| 深度睡眠 / 唤醒 | 部分修复，仍有复发 | 看门狗链已掐断（关 WiFi + 锁屏 10 分钟：9 分钟零日志、`uptime` 连号、唤醒正常），但次日清晨又重启一次，第二条路径未定位，见 [07](docs/07-suspend-watchdog.md) |
 | 蓝牙 / 音频 / 商店 | 未验证 | 不在本阶段范围 |
 
 ---
@@ -73,7 +73,9 @@ preinit 里做一致性校验（防止挂错镜像）。好处是失败成本为
 | [03](docs/03-weread-heapsize.md) | 微信读书闪退 | 2G/2G 下 ART 的 CC region space 要一整块连续 256 MiB，拿不到；降到 192m 解决 |
 | [04](docs/04-page-keys.md) | 两侧翻页键 | 不是 FSR/KL05 方案，是普通 GPIO 按键（`GPIO5_11`/`GPIO5_14` = `SD1_DAT0`/`SD1_CMD`），板级只在别的板号复用这两根 |
 | [05](docs/05-model-name.md) | 型号名 | `ro.product.model` 是内部代号 `KO1`，`ro.vendor.product.model` 还是 PW3 残留 |
-| [06](docs/06-touch-display.md) | 触摸与刷新 | 输入链路干净，延迟在 EPDC；用户态没有调节入口 |
+| [06](docs/06-touch-display.md) | 触摸与刷新 | 输入链路干净；慢在 EPDC 波形——`a2=0`、GL16 占七成、292 ms/帧，最快那档从未启用 |
+| [07](docs/07-suspend-watchdog.md) | 锁屏重启 | `imx2_wdt` 没有 suspend 钩子，喂狗 timer 在睡眠期冻结 → 60 s 复位；另有一条未定位的路径 |
+| [08](docs/08-buildprop-editing.md) | 改 `build.prop` | 定长 4719 字节、必须等长替换，且**尾部填充区会被 preinit 丢掉**，属性只能写进正文 |
 
 顺带一条负面结论也写在该写的地方：`CONFIG_ARCH_MMAP_RND_BITS=8` 行不通，Android 8.1 的 `init`
 开机强制要求 ≥16，低于就判 `Security failure` 直接重启；正确做法是把 2G/2G 下被 Kconfig 限住的
@@ -93,7 +95,9 @@ ports/ko1/
 │   ├── 03-weread-heapsize.md
 │   ├── 04-page-keys.md       最长的一篇，含 FSR 死路与 GPIO 正解
 │   ├── 05-model-name.md
-│   └── 06-touch-display.md
+│   ├── 06-touch-display.md   EPDC 波形统计与 11 个厂商调试属性
+│   ├── 07-suspend-watchdog.md 锁屏重启：看门狗链、WiFi 拦截、复发
+│   └── 08-buildprop-editing.md 等长改 build.prop 的三个坑
 ├── reports/                  两次只读取证的原始输出（系统清单、模块、GPIO、分区）
 ├── upstream-patches/         可上游的五个补丁 + 系列说明
 └── tools/                    逐项修复用到的脚本，以及一份阅读顺序
@@ -109,6 +113,8 @@ ports/ko1/
 几条容易踩的：
 
 - **每次改内核必须同时更新 `system.img` 的 pin**，否则 preinit 的一致性校验会拦住启动；表现为直接回原厂系统。
+- **`build.prop` 是定长 4719 字节，只能等长替换**；而且尾部 58 字节的 NUL 填充会在 preinit 挂载时被丢掉，
+  写在那里的属性等于没写。细节见 [08](docs/08-buildprop-editing.md)。
 - **增量编译不重新生成 `include/generated/compile.h`**，`uname` 里的 `#编号` 会骗人，判断有没有编进去要看产物哈希或符号。
 - **`getevent` 被 `timeout` 杀掉时缓冲区全丢**，文件是 0 字节不代表没有事件；要用 `-c N` 攒够事件让它自己退出。
 - **production build 下 `/dev/kmsg` 与 debugfs 都被 SELinux 拒**，内核日志只能走 `logcat -b kernel -d`。
@@ -117,8 +123,11 @@ ports/ko1/
 
 ## 已知遗留
 
-- 深度睡眠/唤醒没有完整验证。
-- "跟手"要真正改善就得动显示栈（EPDC 更新模式选择），目前用户态没有开关。
+- 锁屏重启只修掉了看门狗那一条链，第二天仍复发过一次，第二条路径未定位；取证手段（加大
+  `CONFIG_LOG_BUF_SHIFT`、开机读 `SRC_SRSR`）已备好，见 [07](docs/07-suspend-watchdog.md)。
+- 「跟手」的调优入口找到了（`debug.pw3.epdc.*` 共 11 个），但厂商库**只在 SurfaceFlinger
+  启动时读一次**，运行时 `setprop` / 熄屏重开面板都不生效，只能写进 `system.img`。
+  已验证 `fast` 不是 A2 开关；`a2=1` + `settle_ms=150` 的镜像已生成、待部署验证。
 - `system.img` 里 `ro.product.device` / `ro.product.name` / fingerprint 仍是 `pw3`。这是有意的：
   这些是平台名（i.MX6SL + 3.0.35 这个平台就叫 pw3），改了会让 `gralloc.pw3`、`ro.hardware=pw3`、
   `init.pw3*.rc` 一类的东西失配，上游也明确写了"别的机型照用，不改名"。

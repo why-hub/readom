@@ -101,6 +101,12 @@ launcher `8ae83289…`。
 `/sbin/init` 与 `/etc/upstart/init.sh`（1360 B，`ad624cba…`）在 duet 上与 PW3 **相同**，
 不需要替换。
 
+## 不在此列的改动
+
+内核侧的改动（给 `imx2_wdt` 补 suspend/resume、以及在 `enter_state()` 里拒绝 suspend 的对照开关）
+落在本机 3.0.35 内核树里，不属于 readom 仓库，因此不构成上游补丁。
+机理、日志证据与复发记录见 [`../docs/07-suspend-watchdog.md`](../docs/07-suspend-watchdog.md)。
+
 ## 是否已提 PR
 
 **没有，且本阶段明确不提。** 用户 2026-11-14 20:52 决定：「等真机试过没问题再提」。
